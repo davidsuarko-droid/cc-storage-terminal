@@ -36,5 +36,13 @@ check("label: fallback на displayName когда нет в карте",
 check("label: fallback на pretty когда нет ни карты, ни displayName",
   names.label("create:electrum_nugget", nil) == "Electrum Nugget")
 
+-- addresses
+local addresses = require("addresses")
+local a1 = addresses.parse("Main\nCore\n# коммент\nStorage\n")
+check("addresses.parse: 3 адреса", #a1 == 3 and a1[1] == "Main" and a1[3] == "Storage")
+local a2 = addresses.parse("# только комменты\n\n")
+check("addresses.parse: пусто → дефолт Main,Core", a2[1] == "Main" and a2[2] == "Core")
+check("addresses.default: первый в списке", addresses.default(a1) == "Main")
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
