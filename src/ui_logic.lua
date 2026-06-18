@@ -57,15 +57,23 @@ end
 -- скролл-строка со стрелками (y=h-1), статус(y=h).
 function M.layout(w, h)
   local addrW = math.min(20, w - 1)
+  local cartH = 4                                    -- нижний блок: корзина(3 ряда) + кнопки(1 ряд)
+  local cartW = math.max(14, math.min(24, math.floor(w * 0.42)))
+  local by = h - cartH + 1                           -- первая строка нижнего блока
+  local rx1 = cartW + 2                              -- старт правой колонки (после корзины)
   return {
     title  = { x1 = 1,             y1 = 1,     x2 = w, y2 = 1 },
     addr   = { x1 = w - addrW + 1, y1 = 1,     x2 = w, y2 = 1 },
     search = { x1 = 1,             y1 = 2,     x2 = w, y2 = 2 },
     chips  = { x1 = 1,             y1 = 3,     x2 = w, y2 = 4 },
-    grid   = { x1 = 1,             y1 = 5,     x2 = w, y2 = h - 2 },
-    up     = { x1 = w - 9,         y1 = h - 1, x2 = w - 5, y2 = h - 1 },
-    down   = { x1 = w - 4,         y1 = h - 1, x2 = w, y2 = h - 1 },
-    status = { x1 = 1,             y1 = h,     x2 = w, y2 = h },
+    grid   = { x1 = 1,             y1 = 5,     x2 = w, y2 = by - 1 },
+    cart   = { x1 = 1,             y1 = by,    x2 = cartW, y2 = h - 1 },
+    scroll = { x1 = rx1,           y1 = by,    x2 = w, y2 = by },
+    up     = { x1 = w - 9,         y1 = by,    x2 = w - 5, y2 = by },
+    down   = { x1 = w - 4,         y1 = by,    x2 = w, y2 = by },
+    status = { x1 = rx1,           y1 = by + 1, x2 = w, y2 = by + 1 },
+    btns   = { x1 = 1,             y1 = h,     x2 = w, y2 = h }, -- во всю ширину (узкий экран)
+    cartW = cartW, cartH = cartH,
   }
 end
 

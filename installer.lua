@@ -572,13 +572,36 @@ function M.draw(monitor, model)
     hit.tiles[#hit.tiles + 1] = { rect = t.rect, entry = t.entry }
   end
 
-  -- скролл-строка (y=h-1): page X/Y + стрелки справа
-  fill(monitor, { x1 = 1, y1 = L.up.y1, x2 = w, y2 = L.up.y1 }, C.bg)
+  local totals = ui_logic.basketTotals(model.basket)
+
+  -- панель корзины (низ-слева): заголовок + строки "Qx Name", последняя "+K more"
+  fill(monitor, L.cart, C.casing)
+  bevel(monitor, L.cart, C.casingHi, C.casingLo)
+  local cw = L.cart.x2 - L.cart.x1 + 1
+  local chead = "CART " .. totals.units .. "u"
+  text(monitor, L.cart.x1 + 1, L.cart.y1, trunc(chead, cw - 2), C.brass, C.casing)
+  local listRows = L.cart.y2 - (L.cart.y1 + 1) + 1   -- сколько строк под список
+  local lines = ui_logic.basketList(model.basket)
+  if #lines == 0 then
+    text(monitor, L.cart.x1 + 1, L.cart.y1 + 1, trunc("empty - tap tiles", cw - 2), C.muted, C.casing)
+  else
+    for i = 1, listRows do
+      local y = L.cart.y1 + i
+      if i == listRows and #lines > listRows then
+        text(monitor, L.cart.x1 + 1, y, "+" .. (#lines - listRows + 1) .. " more", C.muted, C.casing)
+      elseif lines[i] then
+        local b = lines[i]
+        text(monitor, L.cart.x1 + 1, y, trunc(b.qty .. "x " .. b.entry.display, cw - 2), C.ink, C.casing)
+      end
+    end
+  end
+
+  -- скролл-строка (правая колонка): page X/Y + стрелки
+  fill(monitor, L.scroll, C.bg)
   local total = #model.items
   local page = math.floor((model.scroll or 0) / dims.perPage) + 1
   local pages = math.max(1, math.ceil(total / dims.perPage))
-  local pginfo = total .. " items   page " .. page .. "/" .. pages
-  text(monitor, 2, L.up.y1, pginfo, C.muted, C.bg)
+  text(monitor, L.scroll.x1, L.scroll.y1, trunc("page " .. page .. "/" .. pages, L.up.x1 - L.scroll.x1 - 1), C.muted, C.bg)
   if pg.hasUp then
     fill(monitor, L.up, C.brass); text(monitor, L.up.x1 + 1, L.up.y1, " [^] ", C.bg, C.brass)
     hit.up = L.up
@@ -592,16 +615,15 @@ function M.draw(monitor, model)
     text(monitor, L.down.x1, L.down.y1, " [v] ", C.casing, C.bg)
   end
 
-  -- статус-бар: корзина (Confirm/Clear/Step справа) + тост/сводка слева
-  fill(monitor, L.status, C.bg)
-  local sy = L.status.y1
-  local totals = ui_logic.basketTotals(model.basket)
+  -- ряд кнопок (правая колонка): Confirm / Clear / Step справа налево
+  fill(monitor, L.btns, C.bg)
+  local by2 = L.btns.y1
   local rx = w
   local function btnR(label, bg, fg)
     local x1 = rx - #label + 1
-    fill(monitor, { x1 = x1, y1 = sy, x2 = rx, y2 = sy }, bg)
-    text(monitor, x1, sy, label, fg, bg)
-    local rect = { x1 = x1, y1 = sy, x2 = rx, y2 = sy }
+    fill(monitor, { x1 = x1, y1 = by2, x2 = rx, y2 = by2 }, bg)
+    text(monitor, x1, by2, label, fg, bg)
+    local rect = { x1 = x1, y1 = by2, x2 = rx, y2 = by2 }
     rx = x1 - 1
     return rect
   end
@@ -610,16 +632,12 @@ function M.draw(monitor, model)
     hit.clear = btnR(" Clear ", C.copper, C.text)
     hit.confirm = btnR(" Confirm ", C.brass, C.bg)
   end
-  -- левый текст
-  local left
-  if model.toast then
-    left = model.toast
-  elseif totals.lines > 0 then
-    left = "Cart " .. totals.lines .. " items / " .. totals.units .. " units"
-  else
-    left = "Tap = +Step  |  Step toggles 1/8/64  |  chip filters"
-  end
-  text(monitor, 2, sy, trunc(left, rx - 2), model.toast and C.brassHi or C.muted, C.bg)
+
+  -- статус-строка (правая колонка): тост или подсказка
+  fill(monitor, L.status, C.bg)
+  local hint = model.toast or "Tap = +Step  |  Step 1/8/64  |  chip filters"
+  text(monitor, L.status.x1, L.status.y1, trunc(hint, w - L.status.x1),
+    model.toast and C.brassHi or C.muted, C.bg)
 
   -- степпер-кейпад (оверлей, латунный корпус-пульт)
   if model.keypad then
@@ -1008,15 +1026,23 @@ end
 -- скролл-строка со стрелками (y=h-1), статус(y=h).
 function M.layout(w, h)
   local addrW = math.min(20, w - 1)
+  local cartH = 4                                    -- нижний блок: корзина(3 ряда) + кнопки(1 ряд)
+  local cartW = math.max(14, math.min(24, math.floor(w * 0.42)))
+  local by = h - cartH + 1                           -- первая строка нижнего блока
+  local rx1 = cartW + 2                              -- старт правой колонки (после корзины)
   return {
     title  = { x1 = 1,             y1 = 1,     x2 = w, y2 = 1 },
     addr   = { x1 = w - addrW + 1, y1 = 1,     x2 = w, y2 = 1 },
     search = { x1 = 1,             y1 = 2,     x2 = w, y2 = 2 },
     chips  = { x1 = 1,             y1 = 3,     x2 = w, y2 = 4 },
-    grid   = { x1 = 1,             y1 = 5,     x2 = w, y2 = h - 2 },
-    up     = { x1 = w - 9,         y1 = h - 1, x2 = w - 5, y2 = h - 1 },
-    down   = { x1 = w - 4,         y1 = h - 1, x2 = w, y2 = h - 1 },
-    status = { x1 = 1,             y1 = h,     x2 = w, y2 = h },
+    grid   = { x1 = 1,             y1 = 5,     x2 = w, y2 = by - 1 },
+    cart   = { x1 = 1,             y1 = by,    x2 = cartW, y2 = h - 1 },
+    scroll = { x1 = rx1,           y1 = by,    x2 = w, y2 = by },
+    up     = { x1 = w - 9,         y1 = by,    x2 = w - 5, y2 = by },
+    down   = { x1 = w - 4,         y1 = by,    x2 = w, y2 = by },
+    status = { x1 = rx1,           y1 = by + 1, x2 = w, y2 = by + 1 },
+    btns   = { x1 = 1,             y1 = h,     x2 = w, y2 = h }, -- во всю ширину (узкий экран)
+    cartW = cartW, cartH = cartH,
   }
 end
 
