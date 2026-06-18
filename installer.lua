@@ -205,7 +205,7 @@ function M.kind(msg)
 end
 
 -- === I/O: открыть rednet на первом модеме (или заданной стороне) ===
-
+-- Возвращает сторону или nil, если модема нет (вызывающий решает, фатально ли это).
 function M.open(side)
   if side then
     rednet.open(side)
@@ -217,7 +217,7 @@ function M.open(side)
       return s
     end
   end
-  error("Не найден модем. Подключи Wireless Modem (или ender-модем).", 0)
+  return nil
 end
 
 return M
@@ -240,14 +240,14 @@ function M.find(config)
   local ticker = config.TICKER_SIDE and peripheral.wrap(config.TICKER_SIDE)
     or peripheral.find("Create_StockTicker")
   if not ticker then
-    error("Не найден Create_StockTicker. Подключи Stock Ticker к компьютеру.", 0)
+    error("No Create_StockTicker. Attach a Stock Ticker to the computer.", 0)
   end
 
   local monitor = config.MONITOR_SIDE and peripheral.wrap(config.MONITOR_SIDE)
     or peripheral.find("monitor")
     or peripheral.find("monitor_advanced")
   if not monitor then
-    error("Не найден монитор. Подключи Advanced Monitor.", 0)
+    error("No monitor. Attach an Advanced Monitor.", 0)
   end
 
   return ticker, monitor
@@ -265,7 +265,9 @@ local ui_logic = require("ui_logic")
 local render   = require("render")
 local net      = require("net")
 
-net.open(config.MODEM_SIDE)
+if not net.open(config.MODEM_SIDE) then
+  error("No modem. Equip a Wireless/Ender Modem on the pocket computer.", 0)
+end
 render.applyPalette(term)
 
 local model = {
@@ -688,7 +690,7 @@ end
 
 local ticker, monitor = peripherals.find(config)
 render.applyPalette(monitor)
-net.open(config.MODEM_SIDE)
+local modemSide = net.open(config.MODEM_SIDE) -- nil = модема нет, работаем как монитор без раздачи
 names.load(readFile)
 local addrList = addresses.parse(readFile("addresses.cfg"))
 
@@ -834,7 +836,11 @@ end
 
 refreshStock()
 redraw()
-parallel.waitForAll(refreshLoop, inputLoop, serveLoop)
+if modemSide then
+  parallel.waitForAll(refreshLoop, inputLoop, serveLoop)
+else
+  parallel.waitForAll(refreshLoop, inputLoop) -- модема нет: только локальный монитор
+end
 ]=]
 F["sprites.lua"] = [=[
 -- Пиксель-спрайты категорий через сикстант-символы CC (коды 128-159).

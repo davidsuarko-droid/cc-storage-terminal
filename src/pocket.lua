@@ -7,7 +7,9 @@ local ui_logic = require("ui_logic")
 local render   = require("render")
 local net      = require("net")
 
-net.open(config.MODEM_SIDE)
+if not net.open(config.MODEM_SIDE) then
+  error("No modem. Equip a Wireless/Ender Modem on the pocket computer.", 0)
+end
 render.applyPalette(term)
 
 local model = {

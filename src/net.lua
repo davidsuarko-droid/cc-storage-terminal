@@ -30,7 +30,7 @@ function M.kind(msg)
 end
 
 -- === I/O: открыть rednet на первом модеме (или заданной стороне) ===
-
+-- Возвращает сторону или nil, если модема нет (вызывающий решает, фатально ли это).
 function M.open(side)
   if side then
     rednet.open(side)
@@ -42,7 +42,7 @@ function M.open(side)
       return s
     end
   end
-  error("Не найден модем. Подключи Wireless Modem (или ender-модем).", 0)
+  return nil
 end
 
 return M

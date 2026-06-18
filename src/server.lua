@@ -20,7 +20,7 @@ end
 
 local ticker, monitor = peripherals.find(config)
 render.applyPalette(monitor)
-net.open(config.MODEM_SIDE)
+local modemSide = net.open(config.MODEM_SIDE) -- nil = модема нет, работаем как монитор без раздачи
 names.load(readFile)
 local addrList = addresses.parse(readFile("addresses.cfg"))
 
@@ -166,4 +166,8 @@ end
 
 refreshStock()
 redraw()
-parallel.waitForAll(refreshLoop, inputLoop, serveLoop)
+if modemSide then
+  parallel.waitForAll(refreshLoop, inputLoop, serveLoop)
+else
+  parallel.waitForAll(refreshLoop, inputLoop) -- модема нет: только локальный монитор
+end
