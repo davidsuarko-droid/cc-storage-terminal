@@ -3,7 +3,15 @@
 Дата: 2026-06-18
 
 ## Состояние
-MVP-код готов и запушен в `origin/main`. Все 8 задач плана выполнены (TDD), 41 юнит-тест зелёный, smoke зелёный.
+MVP + редизайн готовы, запушены в `origin/main`. 67 юнит-тестов зелёные, smoke + render-preview зелёные.
+Деплой в игре: `wget run https://raw.githubusercontent.com/davidsuarko-droid/cc-storage-terminal/main/installer.lua`
+
+## Редизайн (2026-06-18)
+- `classify.lua` — таксономия Create→Redstone→Resources→Wood→Stone→Building→Other (tags+id).
+- `render.lua` — DESIGN.md стиль: near-black/белый, синий точечно, чередование строк,
+  count right-align, beveled keypad, скролл `[^]`/`[v]`, **English ASCII** (CC-шрифт без кириллицы).
+- `ui_logic.layout` новый (title/search/cats/grid/scroll/status) + `page()`.
+- Глаз-чек раскладки: `lua5.1 test/render-preview.lua [W H]`.
 
 ## Сделано
 - Репо `cc-storage-terminal` (private), git, push в main.
