@@ -78,28 +78,30 @@ local function bevel(mon, rect, hi, lo)
   fill(mon, { x1 = rect.x2, y1 = rect.y1, x2 = rect.x2, y2 = rect.y2 }, lo)
 end
 
--- одна плитка предмета
+-- одна плитка предмета. Рамка цветом категории (различимость), тёмный зазор
+-- между плитками даёт grid-gap. Имя в 2 строки. Нажатая → латунь.
 local function drawTile(mon, t, model)
   local r = t.rect
   local e = t.entry
   local pressed = model.pressed == e.id
-  local face = pressed and C.brassHi or C.casing
-  fill(mon, r, face)
-  if pressed then
-    bevel(mon, r, C.brass, C.brass)
-  else
-    bevel(mon, r, C.casingHi, C.casingLo)
-  end
-  -- спрайт категории 2x2 в левом-верхнем углу контента
   local catColor = CAT[e.group] or C.muted
+  local frame = pressed and C.brass or catColor
+  local face  = pressed and C.brassHi or C.casing
+  -- рамка = заливка всего прямоугольника цветом категории
+  fill(mon, r, frame)
+  -- внутренняя грань — корпус
+  fill(mon, { x1 = r.x1 + 1, y1 = r.y1 + 1, x2 = r.x2 - 1, y2 = r.y2 - 1 }, face)
+  -- спрайт категории 2x2 в левом-верхнем углу контента
   sprites.draw(mon, r.x1 + 1, r.y1 + 1, e.group, catColor, face)
   -- счётчик xN справа сверху
   local cstr = "x" .. e.count
   local cx = r.x2 - 1 - #cstr + 1
   if cx > r.x1 + 3 then text(mon, cx, r.y1 + 1, cstr, C.ink, face) end
-  -- имя/id снизу
-  local nameMax = (r.x2 - 1) - (r.x1 + 1) + 1
-  text(mon, r.x1 + 1, r.y2 - 1, trunc(e.display, nameMax), C.ink, face)
+  -- имя в 2 строки снизу
+  local innerW = (r.x2 - 1) - (r.x1 + 1) + 1
+  local lines = ui_logic.wrap2(e.display, innerW)
+  text(mon, r.x1 + 1, r.y2 - 2, lines[1], C.ink, face)
+  if lines[2] ~= "" then text(mon, r.x1 + 1, r.y2 - 1, lines[2], C.ink, face) end
 end
 
 function M.draw(monitor, model)
@@ -128,20 +130,24 @@ function M.draw(monitor, model)
   text(monitor, L.search.x2 - #cnt, 2, cnt, focused and C.bg or C.muted, sbg)
   hit.search = L.search
 
-  -- чипы категорий (горизонталь)
+  -- чипы категорий (горизонталь, 2 строки высотой = крупнее тап-зона)
   fill(monitor, L.chips, C.bg)
-  local chips = ui_logic.chips(model.groups, L.chips.x1, L.chips.y1, w)
+  local chipH = L.chips.y2 - L.chips.y1 + 1
+  local chips = ui_logic.chips(model.groups, L.chips.x1, L.chips.y1, w, chipH)
   for _, c in ipairs(chips) do
     local active = (c.group == model.group)
     local cbg = active and C.brass or C.casing
     local cfg = active and C.bg or C.text
     fill(monitor, c.rect, cbg)
-    text(monitor, c.rect.x1, c.rect.y1, c.label, cfg, cbg)
+    bevel(monitor, c.rect, active and C.brassHi or C.casingHi, C.casingLo)
+    -- метка по центру вертикали чипа
+    local my = c.rect.y1 + math.floor((c.rect.y2 - c.rect.y1) / 2)
+    text(monitor, c.rect.x1, my, c.label, cfg, cbg)
     hit.chips[#hit.chips + 1] = { rect = c.rect, group = c.group }
   end
 
   -- грид плиток
-  local dims = ui_logic.gridDims(L.grid, 9, 5, 1)
+  local dims = ui_logic.gridDims(L.grid, 12, 6, 1)
   local tiles, pg = ui_logic.tiles(model.items, model.scroll or 0, dims,
     { x = L.grid.x1, y = L.grid.y1 })
   model.scroll = pg.scroll

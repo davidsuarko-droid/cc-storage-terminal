@@ -41,7 +41,7 @@ end
 local function gridPerPage()
   local w, h = monitor.getSize()
   local L = ui_logic.layout(w, h)
-  return ui_logic.gridDims(L.grid, 9, 5, 1).perPage
+  return ui_logic.gridDims(L.grid, 12, 6, 1).perPage
 end
 
 local function refreshStock()

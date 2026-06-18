@@ -61,8 +61,8 @@ function M.layout(w, h)
     title  = { x1 = 1,             y1 = 1,     x2 = w, y2 = 1 },
     addr   = { x1 = w - addrW + 1, y1 = 1,     x2 = w, y2 = 1 },
     search = { x1 = 1,             y1 = 2,     x2 = w, y2 = 2 },
-    chips  = { x1 = 1,             y1 = 3,     x2 = w, y2 = 3 },
-    grid   = { x1 = 1,             y1 = 4,     x2 = w, y2 = h - 2 },
+    chips  = { x1 = 1,             y1 = 3,     x2 = w, y2 = 4 },
+    grid   = { x1 = 1,             y1 = 5,     x2 = w, y2 = h - 2 },
     up     = { x1 = w - 9,         y1 = h - 1, x2 = w - 5, y2 = h - 1 },
     down   = { x1 = w - 4,         y1 = h - 1, x2 = w, y2 = h - 1 },
     status = { x1 = 1,             y1 = h,     x2 = w, y2 = h },
@@ -96,17 +96,44 @@ function M.tiles(items, scroll, dims, origin)
 end
 
 -- Горизонтальная раскладка чипов категорий с обрезкой по maxW.
-function M.chips(groups, x, y, maxW)
+-- height = высота чипа (тап-зона), по умолчанию 1.
+function M.chips(groups, x, y, maxW, height)
+  height = height or 1
   local out = {}
   local cx = x
   for _, g in ipairs(groups) do
     local label = " " .. g .. " "
     local wlab = #label
     if cx - x + wlab > maxW then break end
-    out[#out + 1] = { group = g, label = label, rect = { x1 = cx, y1 = y, x2 = cx + wlab - 1, y2 = y } }
+    out[#out + 1] = { group = g, label = label,
+      rect = { x1 = cx, y1 = y, x2 = cx + wlab - 1, y2 = y + height - 1 } }
     cx = cx + wlab + 1
   end
   return out
+end
+
+-- Перенос строки s на 2 строки шириной w (по словам; режет длинное слово).
+-- Возвращает {line1, line2}. Вторая обрезается с ".." если не влезла.
+function M.wrap2(s, w)
+  if w <= 0 then return { "", "" } end
+  if #s <= w then return { s, "" } end
+  -- ищем пробел для разрыва первой строки в пределах w
+  local cut = nil
+  for i = w, 1, -1 do
+    if s:sub(i, i) == " " then cut = i; break end
+  end
+  local l1, rest
+  if cut and cut > 1 then
+    l1 = s:sub(1, cut - 1)
+    rest = s:sub(cut + 1)
+  else
+    l1 = s:sub(1, w)
+    rest = s:sub(w + 1)
+  end
+  if #rest > w then
+    rest = w > 2 and (rest:sub(1, w - 2) .. "..") or rest:sub(1, w)
+  end
+  return { l1, rest }
 end
 
 -- Степпер количества: применить кнопку к value, кламп в [0, max].
