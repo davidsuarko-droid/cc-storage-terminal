@@ -44,35 +44,63 @@ local a2 = addresses.parse("# только комменты\n\n")
 check("addresses.parse: пусто → дефолт Main,Core", a2[1] == "Main" and a2[2] == "Core")
 check("addresses.default: первый в списке", addresses.default(a1) == "Main")
 
+-- classify (таксономия)
+local classify = require("classify")
+check("classify: create:* → Create", classify.of("create:cogwheel", nil) == "Create")
+check("classify: createaddition:* → Create", classify.of("createaddition:copper_wire", nil) == "Create")
+check("classify: piston → Redstone", classify.of("minecraft:piston", nil) == "Redstone")
+check("classify: redstone_torch → Redstone", classify.of("minecraft:redstone_torch", nil) == "Redstone")
+check("classify: lever → Redstone", classify.of("minecraft:lever", nil) == "Redstone")
+check("classify: redstone_block → Redstone (раньше Building)",
+  classify.of("minecraft:redstone_block", nil) == "Redstone")
+check("classify: redstone_ore → Resources (не Redstone)",
+  classify.of("minecraft:redstone_ore", nil) == "Resources")
+check("classify: iron_ingot → Resources", classify.of("minecraft:iron_ingot", nil) == "Resources")
+check("classify: по тегу c:nuggets → Resources",
+  classify.of("minecraft:gold_nugget", { "c:nuggets" }) == "Resources")
+check("classify: oak_planks → Wood (раньше Building)", classify.of("minecraft:oak_planks", nil) == "Wood")
+check("classify: oak_log → Wood", classify.of("minecraft:oak_log", nil) == "Wood")
+check("classify: по тегу minecraft:logs → Wood",
+  classify.of("minecraft:weird", { "minecraft:logs" }) == "Wood")
+check("classify: cobblestone → Stone", classify.of("minecraft:cobblestone", nil) == "Stone")
+check("classify: white_wool → Building", classify.of("minecraft:white_wool", nil) == "Building")
+check("classify: apple → Other", classify.of("minecraft:apple", nil) == "Other")
+check("classify.order: Create<Resources<Building",
+  classify.order("Create") < classify.order("Resources")
+    and classify.order("Resources") < classify.order("Building"))
+check("classify.order: Other последний", classify.order("Other") == 7)
+
 -- stock
 local stock = require("stock")
 names.reset()
-check("stock.group: первый itemGroup",
-  stock.group("create:zinc_ingot", { "Create" }) == "Create")
-check("stock.group: fallback на namespace",
-  stock.group("minecraft:apple", nil) == "minecraft")
 local raw = {
-  { name = "minecraft:gold_nugget", count = 5, displayName = "Gold Nugget", itemGroups = { "minecraft" } },
-  { name = "create:electrum_nugget", count = 2, itemGroups = { "Create" } },
-  { name = "minecraft:apple", count = 9, displayName = "Apple", itemGroups = { "minecraft" } },
+  { name = "minecraft:gold_nugget", count = 5, displayName = "Gold Nugget", tags = { "c:nuggets" } },
+  { name = "create:electrum_nugget", count = 2 },
+  { name = "minecraft:apple", count = 9, displayName = "Apple" },
 }
 local norm = stock.normalize(raw, names)
 check("stock.normalize: 3 записи", #norm == 3)
 check("stock.normalize: сорт по display (Apple первым)", norm[1].display == "Apple")
 check("stock.normalize: count проброшен", norm[1].count == 9)
-check("stock.normalize: display через names.label (electrum → pretty)",
+check("stock.normalize: группа через classify (gold_nugget по тегу → Resources)",
   (function()
     for _, e in ipairs(norm) do
-      if e.id == "create:electrum_nugget" then return e.display == "Electrum Nugget" end
+      if e.id == "minecraft:gold_nugget" then return e.group == "Resources" end
+    end
+  end)())
+check("stock.normalize: create:electrum_nugget → Create",
+  (function()
+    for _, e in ipairs(norm) do
+      if e.id == "create:electrum_nugget" then return e.group == "Create" end
     end
   end)())
 local grps = stock.groups(norm)
 check("stock.groups: All первым", grps[1] == "All")
-check("stock.groups: уникальные Create и minecraft присутствуют",
+check("stock.groups: Create раньше Resources раньше Other (по рангу)",
   (function()
-    local has = {}
-    for _, g in ipairs(grps) do has[g] = true end
-    return has["Create"] and has["minecraft"]
+    local pos = {}
+    for i, g in ipairs(grps) do pos[g] = i end
+    return pos["Create"] < pos["Resources"] and pos["Resources"] < pos["Other"]
   end)())
 
 -- ui_logic
@@ -97,10 +125,27 @@ check("clampQty: выше max → max", ui.clampQty(99, 64) == 64)
 check("clampQty: в диапазоне без изменений", ui.clampQty(10, 64) == 10)
 check("clampQty: max<1 → 0", ui.clampQty(5, 0) == 0)
 local Lay = ui.layout(50, 19)
-check("layout: search сверху (y1=1)", Lay.search.y1 == 1)
-check("layout: addr снизу (y2=19)", Lay.addr.y2 == 19)
-check("layout: cats слева ширина 12", Lay.cats.x2 == 12)
-check("layout: grid правее cats", Lay.grid.x1 == 13)
+check("layout: title сверху (y1=1)", Lay.title.y1 == 1)
+check("layout: addr-кнопка в title справа (x2=w)", Lay.addr.x2 == 50 and Lay.addr.y1 == 1)
+check("layout: search вторая строка (y1=2)", Lay.search.y1 == 2)
+check("layout: cats слева ширина 14", Lay.cats.x2 == 14)
+check("layout: grid правее cats (x1=15)", Lay.grid.x1 == 15)
+check("layout: status снизу (y2=h)", Lay.status.y2 == 19)
+
+-- page (пагинация/скролл)
+local many = {}
+for i = 1, 10 do many[i] = { id = "i" .. i, display = "I" .. i } end
+local p0 = ui.page(many, 0, 4)
+check("page: первая страница 4 строки", #p0.slice == 4 and p0.slice[1].id == "i1")
+check("page: hasUp=false на верху", p0.hasUp == false)
+check("page: hasDown=true есть ещё", p0.hasDown == true)
+local p1 = ui.page(many, 99, 4)
+check("page: scroll клампится к max (6)", p1.scroll == 6)
+check("page: последняя страница i7..i10", p1.slice[1].id == "i7" and #p1.slice == 4)
+check("page: hasDown=false внизу", p1.hasDown == false)
+check("page: hasUp=true внизу", p1.hasUp == true)
+check("page: rows>=n → одна страница, без скролла",
+  (function() local p = ui.page(many, 0, 20); return #p.slice == 10 and p.hasDown == false end)())
 
 -- order
 local mock = require("mock-cc")

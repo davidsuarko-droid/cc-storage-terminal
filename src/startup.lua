@@ -23,7 +23,7 @@ local addrList = addresses.parse(readFile("addresses.cfg"))
 
 local model = {
   items = {}, groups = { "All" }, group = "All",
-  query = "", searchFocus = false,
+  query = "", searchFocus = false, scroll = 0,
   addresses = addrList, addrIdx = 1, address = addresses.default(addrList),
   toast = nil, keypad = nil,
 }
@@ -33,6 +33,14 @@ local hit = {}
 local function rebuild()
   local list = ui_logic.byGroup(allItems, model.group)
   model.items = ui_logic.filter(list, model.query)
+  model.scroll = 0
+end
+
+-- высота видимой страницы списка (для скролла на page)
+local function gridRows()
+  local w, h = monitor.getSize()
+  local L = ui_logic.layout(w, h)
+  return L.grid.y2 - L.grid.y1 + 1
 end
 
 local function refreshStock()
@@ -42,7 +50,7 @@ local function refreshStock()
     model.groups = stock.groups(allItems)
     rebuild()
   else
-    model.toast = "Сеть недоступна"
+    model.toast = "No network"
   end
 end
 
@@ -71,8 +79,8 @@ local function handleTouch(x, y)
           local qty = ui_logic.clampQty(kp.value, kp.entry.count)
           local got = order.place(ticker, kp.entry.id, qty, model.address)
           model.toast = got > 0
-            and ("Заказано " .. got .. "x" .. kp.entry.display .. " -> " .. model.address)
-            or "Нет в наличии"
+            and ("Ordered " .. got .. "x " .. kp.entry.display .. " -> " .. model.address)
+            or "Out of stock"
           model.keypad = nil
         else
           model.keypad.value = math.min((model.keypad.value * 10) + tonumber(b.key), 9999)
@@ -91,6 +99,15 @@ local function handleTouch(x, y)
   if ui_logic.inside(hit.addr, x, y) then
     model.addrIdx = (model.addrIdx % #model.addresses) + 1
     model.address = model.addresses[model.addrIdx]
+    return
+  end
+  -- скролл-стрелки
+  if hit.up and ui_logic.inside(hit.up, x, y) then
+    model.scroll = model.scroll - gridRows()
+    return
+  end
+  if hit.down and ui_logic.inside(hit.down, x, y) then
+    model.scroll = model.scroll + gridRows()
     return
   end
   for _, c in ipairs(hit.cats or {}) do

@@ -1,10 +1,6 @@
 -- Нормализация снимка стока тикера в модель UI.
+local classify = require("classify")
 local M = {}
-
-function M.group(id, itemGroups)
-  if itemGroups and itemGroups[1] then return tostring(itemGroups[1]) end
-  return id:match("^(.-):") or "other"
-end
 
 function M.normalize(raw, names)
   local out = {}
@@ -13,13 +9,14 @@ function M.normalize(raw, names)
       id      = e.name,
       count   = e.count or 0,
       display = names.label(e.name, e.displayName),
-      group   = M.group(e.name, e.itemGroups),
+      group   = classify.of(e.name, e.tags),
     }
   end
   table.sort(out, function(a, b) return a.display:lower() < b.display:lower() end)
   return out
 end
 
+-- уникальные встреченные группы, сортированы по рангу таксономии, "All" первым
 function M.groups(entries)
   local seen, list = {}, {}
   for _, e in ipairs(entries) do
@@ -28,7 +25,11 @@ function M.groups(entries)
       list[#list + 1] = e.group
     end
   end
-  table.sort(list)
+  table.sort(list, function(a, b)
+    local ra, rb = classify.order(a), classify.order(b)
+    if ra ~= rb then return ra < rb end
+    return a < b
+  end)
   table.insert(list, 1, "All")
   return list
 end
