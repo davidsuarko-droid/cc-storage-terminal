@@ -1080,7 +1080,7 @@ git commit -m "feat(storage-terminal): startup + smoke — циклы refresh/in
 
 - [ ] **Step 8: In-game проверка (пользователь)**
 
-Расстановка: сзади компьютера — Stock Ticker, справа — склад, слева — Advanced Monitor.
+Расстановка: справа компьютера — Stock Ticker, сзади — склад, слева — Advanced Monitor.
 Деплой: скопировать содержимое `storage-terminal/` на компьютер (`pastebin`/`wget` по файлам, либо копия в `world/computercraft/computer/<id>/`), `startup.lua` как автозапуск, ребут.
 
 Чек-лист:
