@@ -256,5 +256,19 @@ check("order.place: адрес передан первым аргументом"
 check("order.place: filter.name = id", tk._calls[1].filter.name == "minecraft:apple")
 check("order.place: filter._requestCount = qty", tk._calls[1].filter._requestCount == 10)
 
+-- net (протокол)
+local net = require("net")
+check("net.PROTO задан", net.PROTO == "ccstore")
+check("net.reqStock тип stock", net.reqStock().t == "stock")
+local rs = net.respStock({ { id = "a" } }, { "Main" })
+check("net.respStock несёт items", rs.items[1].id == "a")
+check("net.respStock несёт addresses", rs.addresses[1] == "Main")
+local ro = net.reqOrder("minecraft:apple", 5, "Core")
+check("net.reqOrder поля", ro.t == "order" and ro.id == "minecraft:apple" and ro.qty == 5 and ro.address == "Core")
+check("net.respOrder.got", net.respOrder(7).got == 7)
+check("net.kind читает t", net.kind({ t = "stock" }) == "stock")
+check("net.kind на не-таблице nil", net.kind("nope") == nil)
+check("net.kind на nil nil", net.kind(nil) == nil)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end

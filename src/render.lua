@@ -113,7 +113,7 @@ local function drawTile(mon, t, model)
 end
 
 function M.draw(monitor, model)
-  monitor.setTextScale(0.5)
+  if monitor.setTextScale then monitor.setTextScale(0.5) end -- монитор: мельче; term: нет
   local w, h = monitor.getSize()
   local L = ui_logic.layout(w, h)
   fill(monitor, { x1 = 1, y1 = 1, x2 = w, y2 = h }, C.bg)
