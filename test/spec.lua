@@ -75,5 +75,32 @@ check("stock.groups: уникальные Create и minecraft присутств
     return has["Create"] and has["minecraft"]
   end)())
 
+-- ui_logic
+local ui = require("ui_logic")
+local items = {
+  { id = "minecraft:apple",        display = "Apple",          group = "minecraft" },
+  { id = "create:electrum_nugget", display = "Electrum Nugget", group = "Create" },
+  { id = "create:zinc_ingot",      display = "Цинк",            group = "Create" },
+}
+check("filter: по display (без регистра)", #ui.filter(items, "apple") == 1)
+check("filter: по id-подстроке", #ui.filter(items, "electrum") == 1)
+check("filter: пустой query → всё", #ui.filter(items, "") == 3)
+check("filter: нет совпадений → пусто", #ui.filter(items, "zzz") == 0)
+check("byGroup: Create → 2", #ui.byGroup(items, "Create") == 2)
+check("byGroup: All → всё", #ui.byGroup(items, "All") == 3)
+local r = { x1 = 2, y1 = 2, x2 = 5, y2 = 5 }
+check("inside: внутри", ui.inside(r, 3, 4) == true)
+check("inside: на границе включительно", ui.inside(r, 5, 5) == true)
+check("inside: снаружи", ui.inside(r, 6, 4) == false)
+check("clampQty: ниже 1 → 1", ui.clampQty(0, 64) == 1)
+check("clampQty: выше max → max", ui.clampQty(99, 64) == 64)
+check("clampQty: в диапазоне без изменений", ui.clampQty(10, 64) == 10)
+check("clampQty: max<1 → 0", ui.clampQty(5, 0) == 0)
+local Lay = ui.layout(50, 19)
+check("layout: search сверху (y1=1)", Lay.search.y1 == 1)
+check("layout: addr снизу (y2=19)", Lay.addr.y2 == 19)
+check("layout: cats слева ширина 12", Lay.cats.x2 == 12)
+check("layout: grid правее cats", Lay.grid.x1 == 13)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
