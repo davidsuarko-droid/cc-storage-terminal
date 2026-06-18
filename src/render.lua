@@ -84,8 +84,10 @@ local function drawTile(mon, t, model)
   local r = t.rect
   local e = t.entry
   local pressed = model.pressed == e.id
+  local inCart = ui_logic.basketQty(model.basket, e.id)
   local catColor = CAT[e.group] or C.muted
-  local frame = pressed and C.brass or catColor
+  -- в корзине → латунная рамка (выделение), иначе цвет категории
+  local frame = (pressed or inCart > 0) and C.brass or catColor
   local face  = pressed and C.brassHi or C.casing
   -- рамка = заливка всего прямоугольника цветом категории
   fill(mon, r, frame)
@@ -93,10 +95,16 @@ local function drawTile(mon, t, model)
   fill(mon, { x1 = r.x1 + 1, y1 = r.y1 + 1, x2 = r.x2 - 1, y2 = r.y2 - 1 }, face)
   -- спрайт категории 2x2 в левом-верхнем углу контента
   sprites.draw(mon, r.x1 + 1, r.y1 + 1, e.group, catColor, face)
-  -- счётчик xN справа сверху
+  -- счётчик стока xN справа сверху
   local cstr = "x" .. e.count
   local cx = r.x2 - 1 - #cstr + 1
   if cx > r.x1 + 3 then text(mon, cx, r.y1 + 1, cstr, C.ink, face) end
+  -- бейдж корзины (+N) справа, вторая строка
+  if inCart > 0 then
+    local bstr = "+" .. inCart
+    local bx = r.x2 - 1 - #bstr + 1
+    if bx > r.x1 + 3 then text(mon, bx, r.y1 + 2, bstr, C.brass, face) end
+  end
   -- имя в 2 строки снизу
   local innerW = (r.x2 - 1) - (r.x1 + 1) + 1
   local lines = ui_logic.wrap2(e.display, innerW)
@@ -176,13 +184,34 @@ function M.draw(monitor, model)
     text(monitor, L.down.x1, L.down.y1, " [v] ", C.casing, C.bg)
   end
 
-  -- статус-бар (тост или подсказка)
+  -- статус-бар: корзина (Confirm/Clear/Step справа) + тост/сводка слева
   fill(monitor, L.status, C.bg)
-  if model.toast then
-    text(monitor, 2, L.status.y1, trunc(model.toast, w - 2), C.brassHi, C.bg)
-  else
-    text(monitor, 2, L.status.y1, "Tap tile to order  |  Tap chip to filter", C.muted, C.bg)
+  local sy = L.status.y1
+  local totals = ui_logic.basketTotals(model.basket)
+  local rx = w
+  local function btnR(label, bg, fg)
+    local x1 = rx - #label + 1
+    fill(monitor, { x1 = x1, y1 = sy, x2 = rx, y2 = sy }, bg)
+    text(monitor, x1, sy, label, fg, bg)
+    local rect = { x1 = x1, y1 = sy, x2 = rx, y2 = sy }
+    rx = x1 - 1
+    return rect
   end
+  hit.step = btnR(" Step:" .. (model.step or 1) .. " ", C.casing, C.ink)
+  if totals.lines > 0 then
+    hit.clear = btnR(" Clear ", C.copper, C.text)
+    hit.confirm = btnR(" Confirm ", C.brass, C.bg)
+  end
+  -- левый текст
+  local left
+  if model.toast then
+    left = model.toast
+  elseif totals.lines > 0 then
+    left = "Cart " .. totals.lines .. " items / " .. totals.units .. " units"
+  else
+    left = "Tap = +Step  |  Step toggles 1/8/64  |  chip filters"
+  end
+  text(monitor, 2, sy, trunc(left, rx - 2), model.toast and C.brassHi or C.muted, C.bg)
 
   -- степпер-кейпад (оверлей, латунный корпус-пульт)
   if model.keypad then

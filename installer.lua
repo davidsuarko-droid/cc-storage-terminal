@@ -291,8 +291,10 @@ local function drawTile(mon, t, model)
   local r = t.rect
   local e = t.entry
   local pressed = model.pressed == e.id
+  local inCart = ui_logic.basketQty(model.basket, e.id)
   local catColor = CAT[e.group] or C.muted
-  local frame = pressed and C.brass or catColor
+  -- в корзине → латунная рамка (выделение), иначе цвет категории
+  local frame = (pressed or inCart > 0) and C.brass or catColor
   local face  = pressed and C.brassHi or C.casing
   -- рамка = заливка всего прямоугольника цветом категории
   fill(mon, r, frame)
@@ -300,10 +302,16 @@ local function drawTile(mon, t, model)
   fill(mon, { x1 = r.x1 + 1, y1 = r.y1 + 1, x2 = r.x2 - 1, y2 = r.y2 - 1 }, face)
   -- спрайт категории 2x2 в левом-верхнем углу контента
   sprites.draw(mon, r.x1 + 1, r.y1 + 1, e.group, catColor, face)
-  -- счётчик xN справа сверху
+  -- счётчик стока xN справа сверху
   local cstr = "x" .. e.count
   local cx = r.x2 - 1 - #cstr + 1
   if cx > r.x1 + 3 then text(mon, cx, r.y1 + 1, cstr, C.ink, face) end
+  -- бейдж корзины (+N) справа, вторая строка
+  if inCart > 0 then
+    local bstr = "+" .. inCart
+    local bx = r.x2 - 1 - #bstr + 1
+    if bx > r.x1 + 3 then text(mon, bx, r.y1 + 2, bstr, C.brass, face) end
+  end
   -- имя в 2 строки снизу
   local innerW = (r.x2 - 1) - (r.x1 + 1) + 1
   local lines = ui_logic.wrap2(e.display, innerW)
@@ -383,13 +391,34 @@ function M.draw(monitor, model)
     text(monitor, L.down.x1, L.down.y1, " [v] ", C.casing, C.bg)
   end
 
-  -- статус-бар (тост или подсказка)
+  -- статус-бар: корзина (Confirm/Clear/Step справа) + тост/сводка слева
   fill(monitor, L.status, C.bg)
-  if model.toast then
-    text(monitor, 2, L.status.y1, trunc(model.toast, w - 2), C.brassHi, C.bg)
-  else
-    text(monitor, 2, L.status.y1, "Tap tile to order  |  Tap chip to filter", C.muted, C.bg)
+  local sy = L.status.y1
+  local totals = ui_logic.basketTotals(model.basket)
+  local rx = w
+  local function btnR(label, bg, fg)
+    local x1 = rx - #label + 1
+    fill(monitor, { x1 = x1, y1 = sy, x2 = rx, y2 = sy }, bg)
+    text(monitor, x1, sy, label, fg, bg)
+    local rect = { x1 = x1, y1 = sy, x2 = rx, y2 = sy }
+    rx = x1 - 1
+    return rect
   end
+  hit.step = btnR(" Step:" .. (model.step or 1) .. " ", C.casing, C.ink)
+  if totals.lines > 0 then
+    hit.clear = btnR(" Clear ", C.copper, C.text)
+    hit.confirm = btnR(" Confirm ", C.brass, C.bg)
+  end
+  -- левый текст
+  local left
+  if model.toast then
+    left = model.toast
+  elseif totals.lines > 0 then
+    left = "Cart " .. totals.lines .. " items / " .. totals.units .. " units"
+  else
+    left = "Tap = +Step  |  Step toggles 1/8/64  |  chip filters"
+  end
+  text(monitor, 2, sy, trunc(left, rx - 2), model.toast and C.brassHi or C.muted, C.bg)
 
   -- степпер-кейпад (оверлей, латунный корпус-пульт)
   if model.keypad then
@@ -525,6 +554,7 @@ local model = {
   query = "", searchFocus = false, scroll = 0,
   addresses = addrList, addrIdx = 1, address = addresses.default(addrList),
   toast = nil, keypad = nil,
+  basket = ui_logic.basketNew(), step = 1,
 }
 local allItems = {}
 local hit = {}
@@ -610,6 +640,30 @@ local function handleTouch(x, y)
     model.scroll = model.scroll + gridPerPage()
     return
   end
+  -- переключатель шага накопления (1 -> 8 -> 64)
+  if hit.step and ui_logic.inside(hit.step, x, y) then
+    model.step = ui_logic.nextStep(model.step)
+    return
+  end
+  -- очистить корзину
+  if hit.clear and ui_logic.inside(hit.clear, x, y) then
+    model.basket = ui_logic.basketNew()
+    model.toast = "Cart cleared"
+    return
+  end
+  -- подтвердить заказ — послать всю корзину
+  if hit.confirm and ui_logic.inside(hit.confirm, x, y) then
+    local lines, units = 0, 0
+    for _, b in ipairs(ui_logic.basketList(model.basket)) do
+      local got = order.place(ticker, b.entry.id, b.qty, model.address)
+      if got > 0 then lines = lines + 1; units = units + got end
+    end
+    model.basket = ui_logic.basketNew()
+    model.toast = lines > 0
+      and ("Sent " .. units .. " units (" .. lines .. " items) -> " .. model.address)
+      or "Out of stock"
+    return
+  end
   for _, c in ipairs(hit.chips or {}) do
     if ui_logic.inside(c.rect, x, y) then
       model.group = c.group
@@ -617,9 +671,10 @@ local function handleTouch(x, y)
       return
     end
   end
+  -- тап плитки = добавить шаг в корзину (накопление)
   for _, it in ipairs(hit.tiles or {}) do
     if ui_logic.inside(it.rect, x, y) then
-      model.keypad = { entry = it.entry, value = 0 }
+      ui_logic.basketAdd(model.basket, it.entry, model.step)
       model.pressed = it.entry.id
       return
     end
@@ -831,6 +886,71 @@ function M.wrap2(s, w)
     rest = w > 2 and (rest:sub(1, w - 2) .. "..") or rest:sub(1, w)
   end
   return { l1, rest }
+end
+
+-- === Корзина (накопление заказа, как лог-запросы Factorio) ===
+-- Модель: { order = {id,...}, map = { id = {entry=, qty=} } }. Сохраняет порядок.
+
+function M.basketNew()
+  return { order = {}, map = {} }
+end
+
+-- Изменить кол-во id на delta (может быть <0). Кламп [0, entry.count].
+-- При 0 — убрать из корзины. Возвращает итоговое qty.
+function M.basketAdd(basket, entry, delta)
+  local cur = basket.map[entry.id]
+  local qty = (cur and cur.qty or 0) + delta
+  if qty < 0 then qty = 0 end
+  if qty > entry.count then qty = entry.count end
+  if qty == 0 then
+    if cur then
+      basket.map[entry.id] = nil
+      for i, id in ipairs(basket.order) do
+        if id == entry.id then table.remove(basket.order, i); break end
+      end
+    end
+    return 0
+  end
+  if not cur then
+    basket.order[#basket.order + 1] = entry.id
+    basket.map[entry.id] = { entry = entry, qty = qty }
+  else
+    cur.qty = qty
+    cur.entry = entry -- освежить (сток мог поменяться)
+  end
+  return qty
+end
+
+function M.basketQty(basket, id)
+  local c = basket.map[id]
+  return c and c.qty or 0
+end
+
+-- Список {entry, qty} в порядке добавления.
+function M.basketList(basket)
+  local out = {}
+  for _, id in ipairs(basket.order) do
+    local c = basket.map[id]
+    if c then out[#out + 1] = { entry = c.entry, qty = c.qty } end
+  end
+  return out
+end
+
+-- Итоги: lines = позиций, units = суммарно штук.
+function M.basketTotals(basket)
+  local lines, units = 0, 0
+  for _, id in ipairs(basket.order) do
+    local c = basket.map[id]
+    if c then lines = lines + 1; units = units + c.qty end
+  end
+  return { lines = lines, units = units }
+end
+
+-- Цикл шага накопления для тач-монитора: 1 → 8 → 64 → 1.
+function M.nextStep(step)
+  if step == 1 then return 8
+  elseif step == 8 then return 64
+  else return 1 end
 end
 
 -- Степпер количества: применить кнопку к value, кламп в [0, max].

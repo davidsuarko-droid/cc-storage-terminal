@@ -58,11 +58,17 @@ for i, s in ipairs(samples) do
   items[#items+1] = { id = "id" .. i, display = s[1], count = s[2], group = s[3] }
 end
 
+local ui_logic = require("ui_logic")
+local basket = ui_logic.basketNew()
+ui_logic.basketAdd(basket, items[1], 8)   -- Andesite Alloy x8
+ui_logic.basketAdd(basket, items[3], 64)  -- Cogwheel x64
+
 local model = {
   items = items, groups = {"All","Create","Redstone","Resources","Wood","Stone","Building","Other"},
   group = "Create", query = "", searchFocus = false, scroll = 0,
   address = "Main", addresses = {"Main","Core"}, addrIdx = 1,
   toast = nil, keypad = nil, pressed = "id3",
+  basket = basket, step = 8,
 }
 
 local mon = newMonitor(W, H)

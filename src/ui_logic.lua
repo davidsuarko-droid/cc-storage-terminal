@@ -136,6 +136,71 @@ function M.wrap2(s, w)
   return { l1, rest }
 end
 
+-- === Корзина (накопление заказа, как лог-запросы Factorio) ===
+-- Модель: { order = {id,...}, map = { id = {entry=, qty=} } }. Сохраняет порядок.
+
+function M.basketNew()
+  return { order = {}, map = {} }
+end
+
+-- Изменить кол-во id на delta (может быть <0). Кламп [0, entry.count].
+-- При 0 — убрать из корзины. Возвращает итоговое qty.
+function M.basketAdd(basket, entry, delta)
+  local cur = basket.map[entry.id]
+  local qty = (cur and cur.qty or 0) + delta
+  if qty < 0 then qty = 0 end
+  if qty > entry.count then qty = entry.count end
+  if qty == 0 then
+    if cur then
+      basket.map[entry.id] = nil
+      for i, id in ipairs(basket.order) do
+        if id == entry.id then table.remove(basket.order, i); break end
+      end
+    end
+    return 0
+  end
+  if not cur then
+    basket.order[#basket.order + 1] = entry.id
+    basket.map[entry.id] = { entry = entry, qty = qty }
+  else
+    cur.qty = qty
+    cur.entry = entry -- освежить (сток мог поменяться)
+  end
+  return qty
+end
+
+function M.basketQty(basket, id)
+  local c = basket.map[id]
+  return c and c.qty or 0
+end
+
+-- Список {entry, qty} в порядке добавления.
+function M.basketList(basket)
+  local out = {}
+  for _, id in ipairs(basket.order) do
+    local c = basket.map[id]
+    if c then out[#out + 1] = { entry = c.entry, qty = c.qty } end
+  end
+  return out
+end
+
+-- Итоги: lines = позиций, units = суммарно штук.
+function M.basketTotals(basket)
+  local lines, units = 0, 0
+  for _, id in ipairs(basket.order) do
+    local c = basket.map[id]
+    if c then lines = lines + 1; units = units + c.qty end
+  end
+  return { lines = lines, units = units }
+end
+
+-- Цикл шага накопления для тач-монитора: 1 → 8 → 64 → 1.
+function M.nextStep(step)
+  if step == 1 then return 8
+  elseif step == 8 then return 64
+  else return 1 end
+end
+
 -- Степпер количества: применить кнопку к value, кламп в [0, max].
 function M.stepper(value, key, max)
   if key == "-" then value = value - 1

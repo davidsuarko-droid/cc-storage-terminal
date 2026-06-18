@@ -27,6 +27,7 @@ local model = {
   query = "", searchFocus = false, scroll = 0,
   addresses = addrList, addrIdx = 1, address = addresses.default(addrList),
   toast = nil, keypad = nil,
+  basket = ui_logic.basketNew(), step = 1,
 }
 local allItems = {}
 local hit = {}
@@ -112,6 +113,30 @@ local function handleTouch(x, y)
     model.scroll = model.scroll + gridPerPage()
     return
   end
+  -- переключатель шага накопления (1 -> 8 -> 64)
+  if hit.step and ui_logic.inside(hit.step, x, y) then
+    model.step = ui_logic.nextStep(model.step)
+    return
+  end
+  -- очистить корзину
+  if hit.clear and ui_logic.inside(hit.clear, x, y) then
+    model.basket = ui_logic.basketNew()
+    model.toast = "Cart cleared"
+    return
+  end
+  -- подтвердить заказ — послать всю корзину
+  if hit.confirm and ui_logic.inside(hit.confirm, x, y) then
+    local lines, units = 0, 0
+    for _, b in ipairs(ui_logic.basketList(model.basket)) do
+      local got = order.place(ticker, b.entry.id, b.qty, model.address)
+      if got > 0 then lines = lines + 1; units = units + got end
+    end
+    model.basket = ui_logic.basketNew()
+    model.toast = lines > 0
+      and ("Sent " .. units .. " units (" .. lines .. " items) -> " .. model.address)
+      or "Out of stock"
+    return
+  end
   for _, c in ipairs(hit.chips or {}) do
     if ui_logic.inside(c.rect, x, y) then
       model.group = c.group
@@ -119,9 +144,10 @@ local function handleTouch(x, y)
       return
     end
   end
+  -- тап плитки = добавить шаг в корзину (накопление)
   for _, it in ipairs(hit.tiles or {}) do
     if ui_logic.inside(it.rect, x, y) then
-      model.keypad = { entry = it.entry, value = 0 }
+      ui_logic.basketAdd(model.basket, it.entry, model.step)
       model.pressed = it.entry.id
       return
     end

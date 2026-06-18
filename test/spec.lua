@@ -180,6 +180,26 @@ check("stepper: Max = весь сток", ui.stepper(0, "Max", 42) == 42)
 check("stepper: Clear = 0", ui.stepper(30, "Clear", 64) == 0)
 check("stepper: не уходит ниже 0", ui.stepper(0, "-", 64) == 0)
 
+-- basket (корзина-накопление)
+local bIron = { id = "iron", display = "Iron", count = 100 }
+local bGold = { id = "gold", display = "Gold", count = 50 }
+local bk = ui.basketNew()
+check("basket: новая пустая", ui.basketTotals(bk).lines == 0)
+ui.basketAdd(bk, bIron, 8)
+check("basket: add 8 → qty 8", ui.basketQty(bk, "iron") == 8)
+ui.basketAdd(bk, bIron, 64)
+check("basket: накапливает (8+64=72)", ui.basketQty(bk, "iron") == 72)
+ui.basketAdd(bk, bGold, 1)
+check("basket: вторая позиция", ui.basketTotals(bk).lines == 2)
+check("basket: units = сумма (72+1)", ui.basketTotals(bk).units == 73)
+ui.basketAdd(bk, bIron, 999)
+check("basket: кламп к stock (count=100)", ui.basketQty(bk, "iron") == 100)
+check("basket: порядок добавления сохранён", ui.basketList(bk)[1].entry.id == "iron")
+ui.basketAdd(bk, bGold, -5)
+check("basket: уход в 0/ниже → убрать позицию", ui.basketQty(bk, "gold") == 0 and ui.basketTotals(bk).lines == 1)
+check("basket: nextStep 1→8→64→1",
+  ui.nextStep(1) == 8 and ui.nextStep(8) == 64 and ui.nextStep(64) == 1)
+
 -- sprites (сикстант-энкодер)
 local sprites = require("sprites")
 local function bit(n, i) return math.floor(n / 2 ^ (i - 1)) % 2 == 1 end
