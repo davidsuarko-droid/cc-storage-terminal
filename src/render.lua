@@ -1,24 +1,55 @@
--- Рендер модели на монитор. Палитра по DESIGN.md (минимализм, синий точечно).
--- Весь chrome — English ASCII (шрифт CC не умеет кириллицу). Возвращает хит-зоны.
+-- Рендер грид-магазина. Скин Create/стимпанк: андезит-корпус + латунь-акцент.
+-- Палитра перекраивается через setPaletteColour. Chrome — English ASCII
+-- (шрифт CC без кириллицы). Возвращает хит-зоны.
 local ui_logic = require("ui_logic")
+local sprites  = require("sprites")
 local M = {}
 
--- палитра (DESIGN → CC colors)
+-- Семантические роли → слоты палитры CC.
 local C = {
-  bg     = colors.white,
-  surf   = colors.lightGray, -- surface / чередование строк
-  text   = colors.black,
-  muted  = colors.gray,
-  accent = colors.blue,      -- активное/акцент, точечно
-  on     = colors.white,     -- текст на акценте
-  danger = colors.red,
-  edge_l = colors.white,     -- bevel: верх/лево
-  edge_d = colors.gray,      -- bevel: низ/право
+  bg       = colors.black,     -- тёмный андезит/гунметалл
+  casing   = colors.gray,      -- андезит-корпус (плитка/панель)
+  casingHi = colors.lightGray, -- светлый андезит (bevel верх/лево)
+  casingLo = colors.black,     -- тёмный ридж (bevel низ/право)
+  text     = colors.white,     -- парчмент на тёмном
+  ink      = colors.black,     -- near-black на светлой плитке
+  muted    = colors.gray,      -- приглушённый
+  brass    = colors.yellow,    -- латунь — главный акцент
+  brassHi  = colors.orange,    -- светлая латунь
+  copper   = colors.red,       -- медь/ржавчина — danger/X
 }
+
+-- Цвет бейджа-спрайта по категории.
+local CAT = {
+  Create = colors.yellow, Redstone = colors.red, Resources = colors.lightBlue,
+  Wood = colors.brown, Stone = colors.cyan, Building = colors.magenta,
+  Other = colors.purple, All = colors.gray,
+}
+
+-- RGB-палитра стимпанка (применяется один раз в startup через M.applyPalette).
+local PALETTE = {
+  [colors.black]     = 0x2A2925, -- тёмный андезит
+  [colors.gray]      = 0x8F8F86, -- андезит-корпус
+  [colors.lightGray] = 0xC2C2B6, -- светлый андезит
+  [colors.white]     = 0xE8DEC8, -- парчмент
+  [colors.yellow]    = 0xC8A24A, -- латунь
+  [colors.orange]    = 0xE3C77A, -- светлая латунь
+  [colors.red]       = 0xB5512A, -- медь
+  [colors.lightBlue] = 0x6E90B0, -- сталь (Resources)
+  [colors.brown]     = 0x7A5A38, -- дерево
+  [colors.cyan]      = 0x7E8A86, -- камень
+  [colors.magenta]   = 0xB5663B, -- терракот (Building)
+  [colors.purple]    = 0x6B6458, -- тусклый (Other)
+}
+
+function M.applyPalette(mon)
+  if not mon.setPaletteColour then return end
+  for slot, rgb in pairs(PALETTE) do mon.setPaletteColour(slot, rgb) end
+end
 
 local function fill(mon, rect, bg)
   mon.setBackgroundColor(bg)
-  local blank = string.rep(" ", rect.x2 - rect.x1 + 1)
+  local blank = string.rep(" ", math.max(0, rect.x2 - rect.x1 + 1))
   for y = rect.y1, rect.y2 do
     mon.setCursorPos(rect.x1, y)
     mon.write(blank)
@@ -32,11 +63,43 @@ local function text(mon, x, y, s, fg, bg)
   mon.write(s)
 end
 
--- обрезка с ".." если длиннее max
 local function trunc(s, max)
+  if max <= 0 then return "" end
   if #s <= max then return s end
   if max <= 2 then return s:sub(1, max) end
   return s:sub(1, max - 2) .. ".."
+end
+
+-- beveled-рамка: верх/лево hi, низ/право lo (объём корпуса).
+local function bevel(mon, rect, hi, lo)
+  fill(mon, { x1 = rect.x1, y1 = rect.y1, x2 = rect.x2, y2 = rect.y1 }, hi)
+  fill(mon, { x1 = rect.x1, y1 = rect.y1, x2 = rect.x1, y2 = rect.y2 }, hi)
+  fill(mon, { x1 = rect.x1, y1 = rect.y2, x2 = rect.x2, y2 = rect.y2 }, lo)
+  fill(mon, { x1 = rect.x2, y1 = rect.y1, x2 = rect.x2, y2 = rect.y2 }, lo)
+end
+
+-- одна плитка предмета
+local function drawTile(mon, t, model)
+  local r = t.rect
+  local e = t.entry
+  local pressed = model.pressed == e.id
+  local face = pressed and C.brassHi or C.casing
+  fill(mon, r, face)
+  if pressed then
+    bevel(mon, r, C.brass, C.brass)
+  else
+    bevel(mon, r, C.casingHi, C.casingLo)
+  end
+  -- спрайт категории 2x2 в левом-верхнем углу контента
+  local catColor = CAT[e.group] or C.muted
+  sprites.draw(mon, r.x1 + 1, r.y1 + 1, e.group, catColor, face)
+  -- счётчик xN справа сверху
+  local cstr = "x" .. e.count
+  local cx = r.x2 - 1 - #cstr + 1
+  if cx > r.x1 + 3 then text(mon, cx, r.y1 + 1, cstr, C.ink, face) end
+  -- имя/id снизу
+  local nameMax = (r.x2 - 1) - (r.x1 + 1) + 1
+  text(mon, r.x1 + 1, r.y2 - 1, trunc(e.display, nameMax), C.ink, face)
 end
 
 function M.draw(monitor, model)
@@ -44,118 +107,115 @@ function M.draw(monitor, model)
   local w, h = monitor.getSize()
   local L = ui_logic.layout(w, h)
   fill(monitor, { x1 = 1, y1 = 1, x2 = w, y2 = h }, C.bg)
-  local hit = { cats = {}, items = {}, keypad = {} }
+  local hit = { tiles = {}, chips = {}, keypad = {} }
 
-  -- title bar: STORAGE слева + кнопка адреса справа (синяя, точечный акцент)
-  fill(monitor, L.title, C.surf)
-  text(monitor, 2, 1, "STORAGE", C.text, C.surf)
+  -- title: STORAGE слева + кнопка адреса справа (латунь)
+  text(monitor, 2, 1, "STORAGE", C.brass, C.bg)
   local addrLabel = " Deliver: " .. model.address .. " > "
   addrLabel = trunc(addrLabel, L.addr.x2 - L.addr.x1 + 1)
-  fill(monitor, L.addr, C.accent)
-  text(monitor, L.addr.x2 - #addrLabel + 1, 1, addrLabel, C.on, C.accent)
+  fill(monitor, L.addr, C.brass)
+  text(monitor, L.addr.x2 - #addrLabel + 1, 1, addrLabel, C.bg, C.brass)
   hit.addr = L.addr
 
-  -- search bar (focus → синяя обводка)
+  -- search bar
   local focused = model.searchFocus
-  local sbg = focused and C.accent or C.bg
-  local sfg = focused and C.on or C.text
+  local sbg = focused and C.brass or C.bg
+  local sfg = focused and C.bg or C.text
   fill(monitor, L.search, sbg)
   local q = model.query ~= "" and model.query or "type to filter..."
   text(monitor, L.search.x1 + 1, 2, "Search: " .. q, sfg, sbg)
-  local cnt = "#" .. #model.items
-  text(monitor, L.search.x2 - #cnt, 2, cnt, focused and C.on or C.muted, sbg)
+  local cnt = #model.items .. " items"
+  text(monitor, L.search.x2 - #cnt, 2, cnt, focused and C.bg or C.muted, sbg)
   hit.search = L.search
 
-  -- категории (сайдбар, порядок по рангу из stock.groups)
-  fill(monitor, L.cats, C.bg)
-  local cw = L.cats.x2 - L.cats.x1 + 1
-  local cy = L.cats.y1
-  for _, g in ipairs(model.groups) do
-    if cy > L.cats.y2 then break end
-    local active = (g == model.group)
-    local bg = active and C.accent or C.surf
-    local fg = active and C.on or C.text
-    local rect = { x1 = L.cats.x1, y1 = cy, x2 = L.cats.x2, y2 = cy }
-    fill(monitor, rect, bg)
-    text(monitor, L.cats.x1 + 1, cy, trunc(g, cw - 1), fg, bg)
-    hit.cats[#hit.cats + 1] = { rect = rect, group = g }
-    cy = cy + 1
+  -- чипы категорий (горизонталь)
+  fill(monitor, L.chips, C.bg)
+  local chips = ui_logic.chips(model.groups, L.chips.x1, L.chips.y1, w)
+  for _, c in ipairs(chips) do
+    local active = (c.group == model.group)
+    local cbg = active and C.brass or C.casing
+    local cfg = active and C.bg or C.text
+    fill(monitor, c.rect, cbg)
+    text(monitor, c.rect.x1, c.rect.y1, c.label, cfg, cbg)
+    hit.chips[#hit.chips + 1] = { rect = c.rect, group = c.group }
   end
 
-  -- сетка предметов со скроллом + чередованием фона
-  local rows = L.grid.y2 - L.grid.y1 + 1
-  local pg = ui_logic.page(model.items, model.scroll or 0, rows)
+  -- грид плиток
+  local dims = ui_logic.gridDims(L.grid, 9, 5, 1)
+  local tiles, pg = ui_logic.tiles(model.items, model.scroll or 0, dims,
+    { x = L.grid.x1, y = L.grid.y1 })
   model.scroll = pg.scroll
-  local gw = L.grid.x2 - L.grid.x1 + 1
-  for i, e in ipairs(pg.slice) do
-    local gy = L.grid.y1 + i - 1
-    local rect = { x1 = L.grid.x1, y1 = gy, x2 = L.grid.x2, y2 = gy }
-    local rbg = (i % 2 == 1) and C.bg or C.surf
-    fill(monitor, rect, rbg)
-    local cstr = "x" .. e.count
-    local nameMax = gw - #cstr - 2
-    text(monitor, L.grid.x1 + 1, gy, trunc(e.display, nameMax), C.text, rbg)
-    text(monitor, L.grid.x2 - #cstr, gy, cstr, C.muted, rbg)
-    hit.items[#hit.items + 1] = { rect = rect, entry = e }
+  for _, t in ipairs(tiles) do
+    drawTile(monitor, t, model)
+    hit.tiles[#hit.tiles + 1] = { rect = t.rect, entry = t.entry }
   end
 
-  -- скролл-бар (y=h-1): [^]  page X-Y/Z  [v]
-  fill(monitor, { x1 = L.cats.x1, y1 = L.up.y1, x2 = w, y2 = L.up.y1 }, C.surf)
+  -- скролл-строка (y=h-1): page X/Y + стрелки справа
+  fill(monitor, { x1 = 1, y1 = L.up.y1, x2 = w, y2 = L.up.y1 }, C.bg)
+  local total = #model.items
+  local page = math.floor((model.scroll or 0) / dims.perPage) + 1
+  local pages = math.max(1, math.ceil(total / dims.perPage))
+  local pginfo = total .. " items   page " .. page .. "/" .. pages
+  text(monitor, 2, L.up.y1, pginfo, C.muted, C.bg)
   if pg.hasUp then
-    text(monitor, L.up.x1, L.up.y1, " [^] ", C.text, C.surf)
+    fill(monitor, L.up, C.brass); text(monitor, L.up.x1 + 1, L.up.y1, " [^] ", C.bg, C.brass)
     hit.up = L.up
   else
-    text(monitor, L.up.x1, L.up.y1, " [ ] ", C.muted, C.surf)
+    text(monitor, L.up.x1 + 1, L.up.y1, " [^] ", C.casing, C.bg)
   end
   if pg.hasDown then
-    text(monitor, L.down.x1, L.down.y1, " [v] ", C.text, C.surf)
+    fill(monitor, L.down, C.brass); text(monitor, L.down.x1, L.down.y1, " [v] ", C.bg, C.brass)
     hit.down = L.down
   else
-    text(monitor, L.down.x1, L.down.y1, " [ ] ", C.muted, C.surf)
+    text(monitor, L.down.x1, L.down.y1, " [v] ", C.casing, C.bg)
   end
-  local total = #model.items
-  local shown = math.min((model.scroll or 0) + rows, total)
-  local pginfo = (math.min((model.scroll or 0) + 1, total)) .. "-" .. shown .. "/" .. total
-  text(monitor, math.floor(w / 2) - math.floor(#pginfo / 2), L.up.y1, pginfo, C.muted, C.surf)
 
   -- статус-бар (тост или подсказка)
   fill(monitor, L.status, C.bg)
   if model.toast then
-    text(monitor, L.status.x1 + 1, L.status.y1, trunc(model.toast, w - 2), C.text, C.bg)
+    text(monitor, 2, L.status.y1, trunc(model.toast, w - 2), C.brassHi, C.bg)
   else
-    text(monitor, L.status.x1 + 1, L.status.y1, "Tap item to order  |  Tap deliver to switch",
-      C.muted, C.bg)
+    text(monitor, 2, L.status.y1, "Tap tile to order  |  Tap chip to filter", C.muted, C.bg)
   end
 
-  -- keypad оверлей (beveled, Win95-дух)
+  -- степпер-кейпад (оверлей, латунный корпус-пульт)
   if model.keypad then
-    local pw, ph = 18, 9
-    local kx, ky = math.floor(w / 2) - math.floor(pw / 2), math.floor(h / 2) - math.floor(ph / 2)
-    local panel = { x1 = kx, y1 = ky, x2 = kx + pw - 1, y2 = ky + ph - 1 }
-    fill(monitor, panel, C.surf)
-    -- bevel: верх/лево светлый, низ/право тёмный
-    fill(monitor, { x1 = panel.x1, y1 = panel.y1, x2 = panel.x2, y2 = panel.y1 }, C.edge_l)
-    fill(monitor, { x1 = panel.x1, y1 = panel.y1, x2 = panel.x1, y2 = panel.y2 }, C.edge_l)
-    fill(monitor, { x1 = panel.x1, y1 = panel.y2, x2 = panel.x2, y2 = panel.y2 }, C.edge_d)
-    fill(monitor, { x1 = panel.x2, y1 = panel.y1, x2 = panel.x2, y2 = panel.y2 }, C.edge_d)
     local kp = model.keypad
-    text(monitor, kx + 1, ky + 1, trunc(kp.entry.display, pw - 7) .. "  x" .. kp.value,
-      C.text, C.surf)
-    local keys = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "OK", "X" }
-    for i, k in ipairs(keys) do
-      local col = (i - 1) % 3
-      local row = math.floor((i - 1) / 3)
-      local bx = kx + 2 + col * 5
-      local by = ky + 3 + row
-      local rect = { x1 = bx, y1 = by, x2 = bx + 3, y2 = by }
-      local face = C.bg
-      local fg = C.text
-      if k == "OK" then face = C.accent; fg = C.on
-      elseif k == "X" then face = C.danger; fg = C.on end
-      fill(monitor, rect, face)
-      local lab = (#k == 1) and (" " .. k .. " ") or k
-      text(monitor, bx + math.floor((4 - #lab) / 2), by, lab, fg, face)
-      hit.keypad[#hit.keypad + 1] = { rect = rect, key = k }
+    local pw, ph = 21, 8
+    local kx = math.floor(w / 2) - math.floor(pw / 2)
+    local ky = math.floor(h / 2) - math.floor(ph / 2)
+    local panel = { x1 = kx, y1 = ky, x2 = kx + pw - 1, y2 = ky + ph - 1 }
+    fill(monitor, panel, C.casing)
+    bevel(monitor, panel, C.casingHi, C.casingLo)
+    text(monitor, kx + 2, ky + 1, trunc(kp.entry.display, pw - 4), C.ink, C.casing)
+    text(monitor, kx + 2, ky + 2, "Qty: " .. kp.value .. " / " .. kp.entry.count, C.ink, C.casing)
+    -- кнопка X в правом-верхнем углу
+    local xrect = { x1 = panel.x2 - 2, y1 = panel.y1, x2 = panel.x2, y2 = panel.y1 }
+    fill(monitor, xrect, C.copper); text(monitor, xrect.x1, xrect.y1, "[X]", C.text, C.copper)
+    hit.keypad[#hit.keypad + 1] = { rect = xrect, key = "X" }
+    -- ряды кнопок: {label,key,relx,rely,wbtn}
+    local btns = {
+      { " - ", "-", 2, 4, 3 }, { "  73 ", nil, 6, 4, 6 }, { " + ", "+", 13, 4, 3 },
+      { " +8 ", "+8", 2, 5, 4 }, { " +64 ", "+64", 7, 5, 5 }, { " Max ", "Max", 13, 5, 5 },
+      { " Clear ", "Clear", 2, 6, 7 }, { "  OK  ", "OK", 13, 6, 6 },
+    }
+    for _, b in ipairs(btns) do
+      local bx, by, bw = kx + b[3], ky + b[4], b[5]
+      local rect = { x1 = bx, y1 = by, x2 = bx + bw - 1, y2 = by }
+      if b[2] == nil then
+        -- поле значения
+        fill(monitor, rect, C.bg)
+        local vs = tostring(kp.value)
+        text(monitor, bx + math.floor((bw - #vs) / 2), by, vs, C.brass, C.bg)
+      else
+        local face = C.casing
+        local fg = C.ink
+        if b[2] == "OK" then face = C.brass; fg = C.bg end
+        fill(monitor, rect, face)
+        bevel(monitor, rect, C.casingHi, C.casingLo)
+        text(monitor, bx, by, b[1], fg, face)
+        hit.keypad[#hit.keypad + 1] = { rect = rect, key = b[2] }
+      end
     end
   end
 

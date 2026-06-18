@@ -128,9 +128,76 @@ local Lay = ui.layout(50, 19)
 check("layout: title сверху (y1=1)", Lay.title.y1 == 1)
 check("layout: addr-кнопка в title справа (x2=w)", Lay.addr.x2 == 50 and Lay.addr.y1 == 1)
 check("layout: search вторая строка (y1=2)", Lay.search.y1 == 2)
-check("layout: cats слева ширина 14", Lay.cats.x2 == 14)
-check("layout: grid правее cats (x1=15)", Lay.grid.x1 == 15)
+check("layout: chips третья строка (y1=3)", Lay.chips.y1 == 3 and Lay.chips.x1 == 1)
+check("layout: grid на всю ширину под чипами (x1=1, y1=4)", Lay.grid.x1 == 1 and Lay.grid.y1 == 4)
+check("layout: grid не залезает на скролл-строку (y2=h-2)", Lay.grid.y2 == 17)
 check("layout: status снизу (y2=h)", Lay.status.y2 == 19)
+
+-- gridDims (раскладка плиток)
+local dims = ui.gridDims({ x1 = 1, y1 = 4, x2 = 50, y2 = 17 }, 9, 5, 1)
+check("gridDims: cols по ширине ((50+1)/(9+1)=5)", dims.cols == 5)
+check("gridDims: rows по высоте ((14+1)/(5+1)=2)", dims.rows == 2)
+check("gridDims: perPage = cols*rows", dims.perPage == 10)
+
+-- tiles (позиции плиток страницы)
+local gi = {}
+for i = 1, 25 do gi[i] = { id = "g" .. i, display = "G" .. i } end
+local tl, tpg = ui.tiles(gi, 0, dims, { x = 1, y = 4 })
+check("tiles: 10 плиток на странице", #tl == 10)
+check("tiles: первая в origin", tl[1].rect.x1 == 1 and tl[1].rect.y1 == 4)
+check("tiles: вторая со сдвигом на tileW+gap", tl[2].rect.x1 == 11 and tl[2].rect.y1 == 4)
+check("tiles: шестая на втором ряду", tl[6].rect.x1 == 1 and tl[6].rect.y1 == 10)
+check("tiles: page прокидывает hasDown", tpg.hasDown == true)
+local tl2 = ui.tiles(gi, 10, dims, { x = 1, y = 4 })
+check("tiles: вторая страница начинается с g11", tl2[1].entry.id == "g11")
+
+-- chips (горизонтальные категории)
+local ch = ui.chips({ "All", "Create", "Redstone" }, 1, 3, 50)
+check("chips: 3 чипа", #ch == 3)
+check("chips: первый с группой All в y=3", ch[1].group == "All" and ch[1].rect.y1 == 3)
+check("chips: второй правее первого", ch[2].rect.x1 > ch[1].rect.x2)
+local chN = ui.chips({ "All", "Create", "Redstone" }, 1, 3, 8)
+check("chips: узкая ширина обрезает список", #chN < 3)
+
+-- stepper (математика выбора количества)
+check("stepper: + прибавляет 1", ui.stepper(5, "+", 64) == 6)
+check("stepper: - убавляет 1", ui.stepper(5, "-", 64) == 4)
+check("stepper: +8", ui.stepper(0, "+8", 64) == 8)
+check("stepper: +64 клампится к max", ui.stepper(10, "+64", 64) == 64)
+check("stepper: Max = весь сток", ui.stepper(0, "Max", 42) == 42)
+check("stepper: Clear = 0", ui.stepper(30, "Clear", 64) == 0)
+check("stepper: не уходит ниже 0", ui.stepper(0, "-", 64) == 0)
+
+-- sprites (сикстант-энкодер)
+local sprites = require("sprites")
+local function bit(n, i) return math.floor(n / 2 ^ (i - 1)) % 2 == 1 end
+check("sprites.cell: пусто → 128, без инверсии",
+  (function() local c, inv = sprites.cell(false, false, false, false, false, false)
+    return c == 128 and inv == false end)())
+check("sprites.cell: всё вкл → 128 + инверсия",
+  (function() local c, inv = sprites.cell(true, true, true, true, true, true)
+    return c == 128 and inv == true end)())
+check("sprites.cell: только TL → 129", (sprites.cell(true, false, false, false, false, false)) == 129)
+check("sprites.cell: TL+TR → 131", (sprites.cell(true, true, false, false, false, false)) == 131)
+check("sprites.cell: роундтрип произвольного паттерна",
+  (function()
+    local p = { true, false, true, true, false, false } -- TL,TR,ML,MR,BL,BR
+    local c, inv = sprites.cell(p[1], p[2], p[3], p[4], p[5], p[6])
+    local n = c - 128
+    for i = 1, 5 do
+      local got = (bit(n, i) ~= inv) -- p_i = stored XOR invert
+      if got ~= p[i] then return false end
+    end
+    return (p[6] and true or false) == inv
+  end)())
+check("sprites: спрайт на каждую категорию существует",
+  (function()
+    for _, name in ipairs({ "Create", "Redstone", "Resources", "Wood", "Stone", "Building", "Other" }) do
+      local s = sprites.SPRITES[name]
+      if not s or #s ~= 6 or #s[1] ~= 4 then return false end
+    end
+    return true
+  end)())
 
 -- page (пагинация/скролл)
 local many = {}

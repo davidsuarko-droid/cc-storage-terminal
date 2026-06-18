@@ -38,20 +38,31 @@ end
 
 local render = require("render")
 
+-- сикстант-байты (128-159) = мусор в UTF8-терминале. Подменяем на ASCII-плейсхолдер
+-- (две буквы категории) — глаз-чек раскладки, не пиксельной графики.
+local sprites = require("sprites")
+sprites.draw = function(mon, x, y, name, fg, bg)
+  mon.setCursorPos(x, y); mon.write(name:sub(1, 2))
+  mon.setCursorPos(x, y + 1); mon.write(name:sub(3, 4) ~= "" and name:sub(3, 4) or "  ")
+end
+
 -- сэмпл-модель
 local items = {}
 local samples = {
-  {"Andesite Alloy",128},{"Brass Ingot",64},{"Cogwheel",32},{"Shaft",256},
-  {"Iron Ingot",512},{"Gold Nugget",999},{"Redstone",1280},{"Piston",48},
-  {"Oak Planks",640},{"Cobblestone",4096},{"White Wool",96},{"Apple",37},
+  {"Andesite Alloy",128,"Create"},{"Brass Ingot",64,"Resources"},{"Cogwheel",32,"Create"},
+  {"Shaft",256,"Create"},{"Iron Ingot",512,"Resources"},{"Gold Nugget",999,"Resources"},
+  {"Redstone",1280,"Redstone"},{"Piston",48,"Building"},{"Oak Planks",640,"Wood"},
+  {"Cobblestone",4096,"Stone"},{"White Wool",96,"Other"},{"Apple",37,"Other"},
 }
-for _, s in ipairs(samples) do items[#items+1] = { id="x", display=s[1], count=s[2], group="All" } end
+for i, s in ipairs(samples) do
+  items[#items+1] = { id = "id" .. i, display = s[1], count = s[2], group = s[3] }
+end
 
 local model = {
   items = items, groups = {"All","Create","Redstone","Resources","Wood","Stone","Building","Other"},
   group = "Create", query = "", searchFocus = false, scroll = 0,
   address = "Main", addresses = {"Main","Core"}, addrIdx = 1,
-  toast = nil, keypad = nil,
+  toast = nil, keypad = nil, pressed = "id3",
 }
 
 local mon = newMonitor(W, H)
@@ -60,7 +71,8 @@ render.draw(mon, model)
 dump(mon, W, H)
 
 print("\n== С keypad ==")
-model.keypad = { entry = items[5], value = 12 }
+model.pressed = nil
+model.keypad = { entry = items[5], value = 73 }
 local mon2 = newMonitor(W, H)
 render.draw(mon2, model)
 dump(mon2, W, H)

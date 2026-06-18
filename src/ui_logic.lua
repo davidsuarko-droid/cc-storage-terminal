@@ -52,21 +52,74 @@ function M.page(items, scroll, rows)
   }
 end
 
--- Раскладка зон. title(y1) с кнопкой адреса справа, search(y2),
--- cats слева (ширина catW), grid справа, scroll-бар (y=h-1), status(y=h).
+-- Раскладка зон грид-магазина. title(y1, кнопка адреса справа), search(y2),
+-- горизонтальные чипы категорий(y3), грид плиток на всю ширину(y4..h-2),
+-- скролл-строка со стрелками (y=h-1), статус(y=h).
 function M.layout(w, h)
-  local catW = 14
   local addrW = math.min(20, w - 1)
   return {
-    title  = { x1 = 1,        y1 = 1,     x2 = w,    y2 = 1 },
-    addr   = { x1 = w - addrW + 1, y1 = 1, x2 = w,   y2 = 1 },
-    search = { x1 = 1,        y1 = 2,     x2 = w,    y2 = 2 },
-    cats   = { x1 = 1,        y1 = 3,     x2 = catW, y2 = h - 1 },
-    grid   = { x1 = catW + 1, y1 = 3,     x2 = w,    y2 = h - 2 },
-    up     = { x1 = catW + 1, y1 = h - 1, x2 = catW + 5, y2 = h - 1 },
-    down   = { x1 = w - 4,    y1 = h - 1, x2 = w,    y2 = h - 1 },
-    status = { x1 = 1,        y1 = h,     x2 = w,    y2 = h },
+    title  = { x1 = 1,             y1 = 1,     x2 = w, y2 = 1 },
+    addr   = { x1 = w - addrW + 1, y1 = 1,     x2 = w, y2 = 1 },
+    search = { x1 = 1,             y1 = 2,     x2 = w, y2 = 2 },
+    chips  = { x1 = 1,             y1 = 3,     x2 = w, y2 = 3 },
+    grid   = { x1 = 1,             y1 = 4,     x2 = w, y2 = h - 2 },
+    up     = { x1 = w - 9,         y1 = h - 1, x2 = w - 5, y2 = h - 1 },
+    down   = { x1 = w - 4,         y1 = h - 1, x2 = w, y2 = h - 1 },
+    status = { x1 = 1,             y1 = h,     x2 = w, y2 = h },
   }
+end
+
+-- Сколько плиток влезает в grid. Возвращает {cols, rows, tileW, tileH, gap, perPage}.
+function M.gridDims(grid, tileW, tileH, gap)
+  local gw = grid.x2 - grid.x1 + 1
+  local gh = grid.y2 - grid.y1 + 1
+  local cols = math.max(1, math.floor((gw + gap) / (tileW + gap)))
+  local rows = math.max(1, math.floor((gh + gap) / (tileH + gap)))
+  return { cols = cols, rows = rows, tileW = tileW, tileH = tileH, gap = gap, perPage = cols * rows }
+end
+
+-- Позиции плиток текущей страницы. origin = {x, y} (левый-верх grid).
+-- Возвращает (список {entry, rect}, page-инфо из M.page).
+function M.tiles(items, scroll, dims, origin)
+  local pg = M.page(items, scroll, dims.perPage)
+  local step = { x = dims.tileW + dims.gap, y = dims.tileH + dims.gap }
+  local out = {}
+  for i, e in ipairs(pg.slice) do
+    local idx = i - 1
+    local col = idx % dims.cols
+    local row = math.floor(idx / dims.cols)
+    local x1 = origin.x + col * step.x
+    local y1 = origin.y + row * step.y
+    out[i] = { entry = e, rect = { x1 = x1, y1 = y1, x2 = x1 + dims.tileW - 1, y2 = y1 + dims.tileH - 1 } }
+  end
+  return out, pg
+end
+
+-- Горизонтальная раскладка чипов категорий с обрезкой по maxW.
+function M.chips(groups, x, y, maxW)
+  local out = {}
+  local cx = x
+  for _, g in ipairs(groups) do
+    local label = " " .. g .. " "
+    local wlab = #label
+    if cx - x + wlab > maxW then break end
+    out[#out + 1] = { group = g, label = label, rect = { x1 = cx, y1 = y, x2 = cx + wlab - 1, y2 = y } }
+    cx = cx + wlab + 1
+  end
+  return out
+end
+
+-- Степпер количества: применить кнопку к value, кламп в [0, max].
+function M.stepper(value, key, max)
+  if key == "-" then value = value - 1
+  elseif key == "+" then value = value + 1
+  elseif key == "+8" then value = value + 8
+  elseif key == "+64" then value = value + 64
+  elseif key == "Max" then value = max
+  elseif key == "Clear" then value = 0 end
+  if value < 0 then value = 0 end
+  if value > max then value = max end
+  return value
 end
 
 return M

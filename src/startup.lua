@@ -18,6 +18,7 @@ local function readFile(path)
 end
 
 local ticker, monitor = peripherals.find(config)
+render.applyPalette(monitor)
 names.load(readFile)
 local addrList = addresses.parse(readFile("addresses.cfg"))
 
@@ -36,11 +37,11 @@ local function rebuild()
   model.scroll = 0
 end
 
--- высота видимой страницы списка (для скролла на page)
-local function gridRows()
+-- сколько плиток на странице (для скролла на страницу)
+local function gridPerPage()
   local w, h = monitor.getSize()
   local L = ui_logic.layout(w, h)
-  return L.grid.y2 - L.grid.y1 + 1
+  return ui_logic.gridDims(L.grid, 9, 5, 1).perPage
 end
 
 local function refreshStock()
@@ -68,6 +69,7 @@ local function refreshLoop()
 end
 
 local function handleTouch(x, y)
+  model.pressed = nil
   -- кейпад имеет приоритет (оверлей)
   if model.keypad then
     for _, b in ipairs(hit.keypad or {}) do
@@ -83,7 +85,7 @@ local function handleTouch(x, y)
             or "Out of stock"
           model.keypad = nil
         else
-          model.keypad.value = math.min((model.keypad.value * 10) + tonumber(b.key), 9999)
+          model.keypad.value = ui_logic.stepper(model.keypad.value, b.key, model.keypad.entry.count)
         end
         return
       end
@@ -101,25 +103,26 @@ local function handleTouch(x, y)
     model.address = model.addresses[model.addrIdx]
     return
   end
-  -- скролл-стрелки
+  -- скролл-стрелки (на страницу)
   if hit.up and ui_logic.inside(hit.up, x, y) then
-    model.scroll = model.scroll - gridRows()
+    model.scroll = model.scroll - gridPerPage()
     return
   end
   if hit.down and ui_logic.inside(hit.down, x, y) then
-    model.scroll = model.scroll + gridRows()
+    model.scroll = model.scroll + gridPerPage()
     return
   end
-  for _, c in ipairs(hit.cats or {}) do
+  for _, c in ipairs(hit.chips or {}) do
     if ui_logic.inside(c.rect, x, y) then
       model.group = c.group
       rebuild()
       return
     end
   end
-  for _, it in ipairs(hit.items or {}) do
+  for _, it in ipairs(hit.tiles or {}) do
     if ui_logic.inside(it.rect, x, y) then
       model.keypad = { entry = it.entry, value = 0 }
+      model.pressed = it.entry.id
       return
     end
   end

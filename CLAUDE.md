@@ -9,8 +9,9 @@
 - Монитор: тип `monitor` (advanced). Тач + цвет.
 
 ## Структура
-- `src/` — модули (`config`, `names`, `addresses`, `stock`, `ui_logic`, `order`, `peripherals`, `render`, `startup`).
-- `test/` — `mock-cc.lua` (стабы CC) + `spec.lua` (юниты) + `smoke.lua`.
+- `src/` — модули (`config`, `names`, `addresses`, `classify`, `stock`, `ui_logic`, `order`, `peripherals`, `sprites`, `render`, `startup`).
+- `test/` — `mock-cc.lua` (стабы CC) + `spec.lua` (юниты) + `smoke.lua` + `render-preview.lua` (глаз-чек).
+- `scripts/gen-installer.lua` — перегенерация `installer.lua` из `src/*.lua` + `*.cfg`.
 - `docs/spec.md`, `docs/plan.md` — дизайн + план реализации.
 - `*.cfg` — редактируемые в игре: `names.cfg` (id→ярлык), `addresses.cfg` (адреса доставки).
 
