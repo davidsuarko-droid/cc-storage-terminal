@@ -102,5 +102,15 @@ check("layout: addr снизу (y2=19)", Lay.addr.y2 == 19)
 check("layout: cats слева ширина 12", Lay.cats.x2 == 12)
 check("layout: grid правее cats", Lay.grid.x1 == 13)
 
+-- order
+local mock = require("mock-cc")
+local order = require("order")
+local tk = mock.ticker({})
+local got = order.place(tk, "minecraft:apple", 10, "Core")
+check("order.place: возвращает кол-во из requestFiltered", got == 10)
+check("order.place: адрес передан первым аргументом", tk._calls[1].addr == "Core")
+check("order.place: filter.name = id", tk._calls[1].filter.name == "minecraft:apple")
+check("order.place: filter._requestCount = qty", tk._calls[1].filter._requestCount == 10)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
