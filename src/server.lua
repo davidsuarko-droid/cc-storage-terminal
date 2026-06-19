@@ -7,7 +7,7 @@ local stock       = require("stock")
 local ui_logic    = require("ui_logic")
 local order       = require("order")
 local peripherals = require("peripherals")
-local render      = require("render")
+local render_text = require("render_text")
 local net         = require("net")
 
 local function readFile(path)
@@ -18,8 +18,24 @@ local function readFile(path)
   return data
 end
 
-local ticker, monitor = peripherals.find(config)
-render.applyPalette(monitor)
+local ticker = peripherals.findTicker(config)
+-- Бэкенд рендера: есть Tom's GPU → пиксельный render_gpu на его мониторе;
+-- нет → символьный render_text на CC-мониторе (старое поведение).
+-- Монитор CC требуется ТОЛЬКО для текстового бэкенда: GPU-путь не нуждается в нём.
+local backend, surface
+local gpu = peripheral.find("tm_gpu")
+if gpu then
+  backend = require("render_gpu")
+  surface = gpu
+  local icons = require("icons")
+  icons.initRuntime(gpu)
+  backend.useIcons(icons)
+else
+  local monitor = peripherals.findMonitor(config)
+  backend = render_text
+  surface = monitor
+end
+backend.applyPalette(surface)
 local modemSide = net.open(config.MODEM_SIDE) -- nil = модема нет, работаем как монитор без раздачи
 names.load(readFile)
 local addrList = addresses.parse(readFile("addresses.cfg"))
@@ -29,7 +45,7 @@ local model = {
   query = "", searchFocus = false, scroll = 0,
   addresses = addrList, addrIdx = 1, address = addresses.default(addrList),
   toast = nil, keypad = nil,
-  basket = ui_logic.basketNew(), step = 1,
+  basket = ui_logic.basketNew(), step = backend.defaultStep,
 }
 local allItems = {}
 local hit = {}
@@ -41,9 +57,7 @@ local function rebuild()
 end
 
 local function gridPerPage()
-  local w, h = monitor.getSize()
-  local L = ui_logic.layout(w, h)
-  return ui_logic.gridDims(L.grid, 12, 6, 1).perPage
+  return backend.perPage(surface)
 end
 
 local function refreshStock()
@@ -58,7 +72,7 @@ local function refreshStock()
 end
 
 local function redraw()
-  hit = render.draw(monitor, model)
+  hit = backend.draw(surface, model)
 end
 
 local function refreshLoop()
@@ -69,7 +83,7 @@ local function refreshLoop()
   end
 end
 
-local function handleTouch(x, y)
+local function handleTouch(x, y, sneaking)
   model.pressed = nil
   if ui_logic.inside(hit.search, x, y) then
     model.searchFocus = true
@@ -89,8 +103,16 @@ local function handleTouch(x, y)
     model.scroll = model.scroll + gridPerPage()
     return
   end
+  if hit.cartUp and ui_logic.inside(hit.cartUp, x, y) then
+    model.cartScroll = (model.cartScroll or 0) - 1
+    return
+  end
+  if hit.cartDown and ui_logic.inside(hit.cartDown, x, y) then
+    model.cartScroll = (model.cartScroll or 0) + 1
+    return
+  end
   if hit.step and ui_logic.inside(hit.step, x, y) then
-    model.step = ui_logic.nextStep(model.step)
+    model.step = backend.nextStep(model.step)
     return
   end
   if hit.clear and ui_logic.inside(hit.clear, x, y) then
@@ -119,7 +141,8 @@ local function handleTouch(x, y)
   end
   for _, it in ipairs(hit.tiles or {}) do
     if ui_logic.inside(it.rect, x, y) then
-      ui_logic.basketAdd(model.basket, it.entry, model.step)
+      local delta = sneaking and 16 or model.step
+      ui_logic.basketAdd(model.basket, it.entry, delta)
       model.pressed = it.entry.id
       return
     end
@@ -132,6 +155,9 @@ local function inputLoop()
     local name = ev[1]
     if name == "monitor_touch" then
       handleTouch(ev[3], ev[4])
+      redraw()
+    elseif name == "tm_monitor_touch" then
+      handleTouch(ev[2], ev[3], ev[4]) -- (x, y, sneaking)
       redraw()
     elseif name == "char" and model.searchFocus then
       model.query = model.query .. ev[2]

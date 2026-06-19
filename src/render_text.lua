@@ -275,4 +275,19 @@ function M.draw(monitor, model)
   return hit
 end
 
+-- === Backend-интерфейс (общий с render_gpu) ===
+M.defaultStep = 1
+
+-- Цикл шага накопления для тач-монитора: 1 → 8 → 64 → 1.
+function M.nextStep(step)
+  return ui_logic.nextStep(step)
+end
+
+-- Сколько плиток на странице при текущем размере поверхности (символы).
+function M.perPage(surface)
+  local w, h = surface.getSize()
+  local L = ui_logic.layout(w, h)
+  return ui_logic.gridDims(L.grid, 12, 6, 1).perPage
+end
+
 return M

@@ -9,7 +9,7 @@
 - Монитор: тип `monitor` (advanced). Тач + цвет.
 
 ## Структура
-- `src/` — модули (`config`, `names`, `addresses`, `classify`, `stock`, `ui_logic`, `order`, `peripherals`, `sprites`, `render`, `net`, `server`, `pocket`, `startup`).
+- `src/` — модули (`config`, `names`, `addresses`, `classify`, `stock`, `ui_logic`, `order`, `peripherals`, `sprites`, `render_text`, `render_gpu`, `icons`, `net`, `server`, `pocket`, `startup`).
 - `startup.lua` = диспетчер: глобал `pocket` есть → клиент (`pocket.lua`), иначе сервер (`server.lua`).
 - **Сервер** (стационарный): тикер + монитор + модем, тач-заказ + раздача стока/заказов по rednet (`net.lua`, протокол `ccstore`).
 - **Покет** (advanced pocket): тянет сток у сервера, рисует на `term`, заказ мышью (ЛКМ=стак, ПКМ=1шт, колесо над плиткой=±шаг).

@@ -274,5 +274,215 @@ check("net.kind читает t", net.kind({ t = "stock" }) == "stock")
 check("net.kind на не-таблице nil", net.kind("nope") == nil)
 check("net.kind на nil nil", net.kind(nil) == nil)
 
+-- icons: чистые помощники маппинга
+local icons = require("icons")
+check("idToFile: namespace:name -> ns__name.png",
+  icons.idToFile("create:cogwheel") == "create__cogwheel.png")
+check("idToFile: без namespace -> minecraft__name.png",
+  icons.idToFile("apple") == "minecraft__apple.png")
+check("parseLayer0: item/generated отдаёт layer0",
+  icons.parseLayer0({ parent = "minecraft:item/generated",
+    textures = { layer0 = "create:item/cogwheel" } }) == "create:item/cogwheel")
+check("parseLayer0: 3D/блок-модель без layer0 -> nil",
+  icons.parseLayer0({ parent = "create:block/cogwheel" }) == nil)
+check("parseLayer0: handheld тоже item-модель -> layer0",
+  icons.parseLayer0({ parent = "minecraft:item/handheld",
+    textures = { layer0 = "minecraft:item/iron_pickaxe" } }) == "minecraft:item/iron_pickaxe")
+
+-- icons runtime: ленивый кэш + LRU + free при вытеснении
+do
+  local icons = require("icons")
+  local freed = {}
+  local fetched = {}
+  -- мок http/fs/decode через DI
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 2,
+    exists = function(_) return false end,
+    fetch = function(url) fetched[#fetched + 1] = url; return "PNGBYTES:" .. url end,
+    decode = function(bytes) return { bytes = bytes, free = function(self) freed[#freed + 1] = self.bytes end } end,
+  })
+  local a = icons.get("create:cogwheel")
+  check("icons.get: декодировал и вернул ref", a ~= nil and a.bytes:find("create__cogwheel.png", 1, true) ~= nil)
+  local a2 = icons.get("create:cogwheel")
+  check("icons.get: второй вызов из кэша (один fetch)", a2 == a and #fetched == 1)
+  icons.get("minecraft:iron_ingot")  -- кэш = 2
+  icons.get("minecraft:redstone")    -- лимит 2 → вытеснение самого старого (cogwheel)
+  check("icons.get: LRU вытеснил и вызвал free", #freed == 1 and freed[1]:find("cogwheel", 1, true) ~= nil)
+  check("icons.cacheCount: держит лимит", icons.cacheCount() == 2)
+end
+
+-- layoutPx: пиксельная раскладка GPU (зоны не пересекаются, грид непустой)
+do
+  local ui = require("ui_logic")
+  local P = ui.layoutPx(328, 200)
+  check("layoutPx: title сверху (y1=1)", P.title.y1 == 1)
+  check("layoutPx: cart слева от грида (cart.x2 < grid.x1)", P.cart.x2 < P.grid.x1)
+  check("layoutPx: грид выше кнопок (grid.y2 < btns.y1)", P.grid.y2 < P.btns.y1)
+  check("layoutPx: кнопки в самом низу (btns.y2 == h)", P.btns.y2 == 200)
+  check("layoutPx: грид шире одной плитки (>=60px)", (P.grid.x2 - P.grid.x1 + 1) >= 60)
+  check("layoutPx: cart имеет свою прокрутку (cartUp выше cartDown)",
+    P.cartUp.y2 < P.cartDown.y1)
+  check("layoutPx: scroll-колонка правее грида (scroll.x1 > grid.x2)",
+    P.scroll.x1 > P.grid.x2)
+end
+-- nextStep4: цикл 1/16/32/64
+check("nextStep4 1->16->32->64->1", (function()
+  local u = require("ui_logic")
+  return u.nextStep4(1) == 16 and u.nextStep4(16) == 32
+     and u.nextStep4(32) == 64 and u.nextStep4(64) == 1
+end)())
+
+-- render_text backend methods (perPage / defaultStep / nextStep)
+local render_text = require("render_text")
+local function fakeSurface(w, h)
+  return { getSize = function() return w, h end }
+end
+do
+  local ui = require("ui_logic")
+  local L = ui.layout(50, 19)
+  local expect = ui.gridDims(L.grid, 12, 6, 1).perPage
+  check("render_text.perPage = gridDims.perPage по getSize",
+    render_text.perPage(fakeSurface(50, 19)) == expect)
+end
+check("render_text.defaultStep = 1", render_text.defaultStep == 1)
+check("render_text.nextStep 1->8->64->1",
+  render_text.nextStep(1) == 8 and render_text.nextStep(8) == 64 and render_text.nextStep(64) == 1)
+
+-- render_gpu backend basics
+do
+  package.path = "./test/?.lua;" .. package.path
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  check("render_gpu.defaultStep = 32", rg.defaultStep == 32)
+  check("render_gpu.nextStep = nextStep4",
+    rg.nextStep(1) == 16 and rg.nextStep(64) == 1)
+  local g = mockgpu.new(328, 200)
+  local P = ui.layoutPx(328, 200)
+  local expect = ui.gridDims(P.grid, 56, 44, 4).perPage
+  check("render_gpu.perPage = gridDims(layoutPx) по getSize",
+    rg.perPage(g) == expect)
+  check("render_gpu.applyPalette не падает (full-color no-op)",
+    (function() rg.applyPalette(g); return true end)())
+end
+
+-- render_gpu.draw produces tiles + hit zones + calls the GPU
+do
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  local g = mockgpu.new(328, 200)
+  local model = {
+    items = {
+      { id = "create:cogwheel", display = "Cogwheel", count = 128, group = "Create" },
+      { id = "minecraft:iron_ingot", display = "Iron Ingot", count = 512, group = "Resources" },
+    },
+    groups = { "All", "Create", "Resources" }, group = "All",
+    query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32, toast = nil,
+  }
+  ui.basketAdd(model.basket, model.items[1], 32)
+  local hit = rg.draw(g, model)
+  check("gpu.draw: вернул плитки (2 items)", #hit.tiles == 2)
+  check("gpu.draw: плитка несёт entry", hit.tiles[1].entry.id == "create:cogwheel")
+  check("gpu.draw: есть search/addr хит-зоны", hit.search ~= nil and hit.addr ~= nil)
+  check("gpu.draw: есть step-кнопка", hit.step ~= nil)
+  check("gpu.draw: confirm появился (корзина непуста)", hit.confirm ~= nil)
+  check("gpu.draw: рисовал на GPU (filledRectangle вызван)",
+    (function() for _, c in ipairs(g._calls) do if c.op == "filledRectangle" then return true end end return false end)())
+  check("gpu.draw: писал текст имени предмета",
+    (function() for _, c in ipairs(g._calls) do if c.op == "drawText" and c.s and c.s:find("Cogwheel", 1, true) then return true end end return false end)())
+end
+
+-- render_gpu: использует реальную иконку, когда icons.get отдаёт ref
+do
+  local mockgpu = require("mock-gpu")
+  local icons = require("icons")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  local g = mockgpu.new(328, 200)
+  -- icons настроен отдавать ref для всех id (фейк-байты)
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 8,
+    fetch = function(url) return "BYTES" end,
+    decode = function(bytes) return g.decodeImage(bytes) end,
+  })
+  rg.useIcons(icons)  -- инъекция icons-модуля в рендер
+  local model = {
+    items = { { id = "create:cogwheel", display = "Cogwheel", count = 128, group = "Create" } },
+    groups = { "All" }, group = "All", query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32,
+  }
+  rg.draw(g, model)
+  check("gpu.draw: вызвал drawImage для реальной иконки",
+    (function() for _, c in ipairs(g._calls) do if c.op == "drawImage" then return true end end return false end)())
+end
+-- и фолбэк: без icons рисует глиф (filledRectangle), не падает
+do
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  rg.useIcons(nil)
+  local g = mockgpu.new(328, 200)
+  local model = {
+    items = { { id = "create:weird_block", display = "Weird", count = 1, group = "Create" } },
+    groups = { "All" }, group = "All", query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32,
+  }
+  check("gpu.draw без icons не падает", (function() rg.draw(g, model); return true end)())
+end
+
+-- peripherals: условное требование монитора (Finding 1)
+do
+  local mock = require("mock-cc")
+  local peripherals = require("peripherals")
+
+  -- нет тикера → findTicker должна выбросить ошибку
+  mock.register("Create_StockTicker", nil)
+  mock.register("monitor", nil)
+  local ok1, e1 = pcall(peripherals.findTicker, {})
+  check("peripherals.findTicker: нет тикера → ошибка про StockTicker",
+    not ok1 and tostring(e1):find("StockTicker") ~= nil)
+
+  -- тикер есть, монитора нет → findTicker успешно (GPU-путь)
+  local fakeTicker = { stock = function() return {} end }
+  mock.register("Create_StockTicker", fakeTicker)
+  local ok2, res2 = pcall(peripherals.findTicker, {})
+  check("peripherals.findTicker: тикер есть, монитора нет → ok",
+    ok2 and res2 == fakeTicker)
+
+  -- монитора нет → findMonitor выбрасывает ошибку (текстовый путь)
+  mock.register("monitor", nil)
+  local ok3, e3 = pcall(peripherals.findMonitor, {})
+  check("peripherals.findMonitor: нет монитора → ошибка про monitor",
+    not ok3 and tostring(e3):find("monitor") ~= nil)
+
+  -- монитор есть → findMonitor возвращает его
+  local fakeMon = { getSize = function() return 50, 19 end }
+  mock.register("monitor", fakeMon)
+  local ok4, res4 = pcall(peripherals.findMonitor, {})
+  check("peripherals.findMonitor: монитор есть → ok",
+    ok4 and res4 == fakeMon)
+end
+
+-- icons: отрицательный кэш — fetch не повторяется при промахе (Finding 2)
+do
+  local icons = require("icons")
+  local fetchCount = 0
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 8,
+    fetch = function(_url) fetchCount = fetchCount + 1; return nil end,
+    decode = function(_bytes) return nil end,
+  })
+  local r1 = icons.get("minecraft:missing_item")
+  local r2 = icons.get("minecraft:missing_item")
+  check("icons.get: miss кэшируется — fetch вызван ровно 1 раз",
+    fetchCount == 1)
+  check("icons.get: при miss возвращает nil (не false)",
+    r1 == nil and r2 == nil)
+  check("icons.cacheCount: miss учитывается в счётчике кэша",
+    icons.cacheCount() == 1)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end

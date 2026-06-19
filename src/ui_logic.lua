@@ -209,6 +209,54 @@ function M.nextStep(step)
   else return 1 end
 end
 
+-- Пиксельная раскладка для GPU-монитора (Tom's Peripherals).
+-- Та же структура зон, что layout, но в пикселях и с крупными плитками.
+-- Слева — постоянная корзина со своей прокруткой; справа — грид; внизу — кнопки.
+function M.layoutPx(w, h)
+  local pad     = 4
+  local titleH  = 18
+  local searchH = 16
+  local chipsH  = 20
+  local btnH    = 22
+  local statusH = 14
+  local scrollW = 22                                  -- колонка стрелок грида справа
+  local cartW   = math.max(96, math.floor(w * 0.30))  -- левая панель корзины
+  local headY   = 1
+  local searchY = headY + titleH
+  local chipsY  = searchY + searchH
+  local bodyTop = chipsY + chipsH + pad
+  local btnY    = h - btnH + 1
+  local statusY = btnY - statusH
+  local bodyBot = statusY - pad
+  local gridX1  = cartW + pad + 1
+  local gridX2  = w - scrollW - pad
+  return {
+    title  = { x1 = 1,            y1 = headY,   x2 = w,           y2 = headY + titleH - 1 },
+    addr   = { x1 = w - 140 + 1,  y1 = headY,   x2 = w,           y2 = headY + titleH - 1 },
+    search = { x1 = 1,            y1 = searchY, x2 = w,           y2 = searchY + searchH - 1 },
+    chips  = { x1 = 1,            y1 = chipsY,  x2 = w,           y2 = chipsY + chipsH - 1 },
+    grid   = { x1 = gridX1,       y1 = bodyTop, x2 = gridX2,      y2 = bodyBot },
+    scroll = { x1 = gridX2 + pad, y1 = bodyTop, x2 = w,           y2 = bodyBot },
+    up     = { x1 = gridX2 + pad, y1 = bodyTop, x2 = w,           y2 = bodyTop + 28 },
+    down   = { x1 = gridX2 + pad, y1 = bodyBot - 28, x2 = w,      y2 = bodyBot },
+    cart   = { x1 = 1,            y1 = bodyTop, x2 = cartW,       y2 = bodyBot },
+    cartUp   = { x1 = cartW - 24, y1 = bodyTop, x2 = cartW,       y2 = bodyTop + 18 },
+    cartDown = { x1 = cartW - 24, y1 = bodyBot - 18, x2 = cartW,  y2 = bodyBot },
+    cartScroll = { x1 = 1,        y1 = bodyTop + 20, x2 = cartW,  y2 = bodyBot - 20 },
+    status = { x1 = 1,            y1 = statusY, x2 = w,           y2 = btnY - 1 },
+    btns   = { x1 = 1,            y1 = btnY,    x2 = w,           y2 = h },
+    cartW = cartW, pad = pad,
+  }
+end
+
+-- Цикл шага накопления для GPU-тача: 1 → 16 → 32 → 64 → 1.
+function M.nextStep4(step)
+  if step == 1 then return 16
+  elseif step == 16 then return 32
+  elseif step == 32 then return 64
+  else return 1 end
+end
+
 -- Степпер количества: применить кнопку к value, кламп в [0, max].
 function M.stepper(value, key, max)
   if key == "-" then value = value - 1

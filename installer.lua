@@ -134,6 +134,122 @@ local config = {
 }
 return config
 ]=]
+F["icons.lua"] = [=[
+-- Иконки предметов для GPU-бэкенда. Чистые помощники (маппинг id→файл,
+-- разбор item-модели) + рантайм-загрузка (ленивый wget + decodeImage + LRU).
+-- Рантайм-часть использует CC API (fs/http), под тестом не вызывается.
+local M = {}
+
+-- id предмета → имя файла иконки. namespace:name → ns__name.png.
+-- Без namespace считаем minecraft.
+function M.idToFile(id)
+  local ns, name = id:match("^(.-):(.+)$")
+  if not ns then ns, name = "minecraft", id end
+  return ns .. "__" .. name .. ".png"
+end
+
+-- Из таблицы item-модели достать layer0 (плоская item-текстура).
+-- Возвращает строку-путь текстуры или nil (3D/блок-модель — пропускаем).
+function M.parseLayer0(model)
+  if not model or type(model) ~= "table" then return nil end
+  local parent = model.parent or ""
+  -- item/generated и item/handheld — плоские item-модели со слоями
+  local isItem = parent:find("item/generated", 1, true) or parent:find("item/handheld", 1, true)
+  if not isItem then return nil end
+  if model.textures and model.textures.layer0 then return model.textures.layer0 end
+  return nil
+end
+
+-- ===== Рантайм: ленивая загрузка + LRU =====
+-- Конфигурируется через DI (тест подменяет fetch/decode/fs).
+local cfg = {
+  baseUrl = "https://raw.githubusercontent.com/davidsuarko-droid/cc-storage-terminal/main/icons/",
+  dir = "/icons",
+  limit = 64,
+  exists = function(p) return fs and fs.exists(p) end,
+  -- читает PNG: сперва с диска, иначе wget по сети, кладёт на диск
+  fetch = function(url) return nil end,
+  decode = function(bytes) return nil end,
+}
+
+-- кэш: map[id]=ref, order = очередь использования (последний — свежий)
+local cache = {}
+local order = {}
+
+function M.configure(opts)
+  for k, v in pairs(opts or {}) do cfg[k] = v end
+  cache = {}; order = {}
+end
+
+function M.cacheCount()
+  local n = 0
+  for _ in pairs(cache) do n = n + 1 end
+  return n
+end
+
+local function touch(id)
+  for i, v in ipairs(order) do
+    if v == id then table.remove(order, i); break end
+  end
+  order[#order + 1] = id
+end
+
+local function evictIfNeeded()
+  while #order > cfg.limit do
+    local victim = table.remove(order, 1)
+    local ref = cache[victim]
+    cache[victim] = nil
+    if ref and ref.free then ref:free() end
+  end
+end
+
+-- Вернуть image-ref иконки для id или nil (нет файла/сети/декода).
+-- Промах кэшируется sentinel-значением false, чтобы повторный вызов
+-- не запускал повторный http.get на каждом кадре (блокирующий HTTP-шторм).
+function M.get(id)
+  local cached = cache[id]
+  if cached ~= nil then   -- хит: реальный ref или sentinel false
+    touch(id)
+    return cached ~= false and cached or nil
+  end
+  -- кэш холодный — пробуем загрузить
+  local bytes = cfg.fetch(cfg.baseUrl .. M.idToFile(id))
+  local ref
+  if bytes then
+    local ok, r = pcall(cfg.decode, bytes)
+    if ok and r then ref = r end
+  end
+  cache[id] = ref or false   -- ref при успехе, false (sentinel) при промахе
+  touch(id)
+  evictIfNeeded()
+  return ref   -- nil при промахе, ref при успехе
+end
+
+-- Боевая настройка под CC: чтение с диска или wget, decode через GPU.
+function M.initRuntime(gpu)
+  M.configure({
+    exists = function(p) return fs.exists(p) end,
+    fetch = function(url)
+      local file = url:match("[^/]+$")
+      local path = cfg.dir .. "/" .. file
+      if fs.exists(path) then
+        local h = fs.open(path, "rb"); local b = h.readAll(); h.close(); return b
+      end
+      local resp = http and http.get(url, nil, true) -- binary
+      if not resp then return nil end
+      local b = resp.readAll(); resp.close()
+      if b then
+        if not fs.exists(cfg.dir) then fs.makeDir(cfg.dir) end
+        local h = fs.open(path, "wb"); h.write(b); h.close()
+      end
+      return b
+    end,
+    decode = function(bytes) return gpu.decodeImage(bytes) end,
+  })
+end
+
+return M
+]=]
 F["names.lua"] = [=[
 -- Карта кастомных имён id->ярлык + fallback-логика.
 local M = {}
@@ -236,21 +352,30 @@ F["peripherals.lua"] = [=[
 -- Поиск тикера и монитора по типу (со страховкой override через сторону).
 local M = {}
 
-function M.find(config)
+-- Ищет Create_StockTicker (всегда обязателен).
+function M.findTicker(config)
   local ticker = config.TICKER_SIDE and peripheral.wrap(config.TICKER_SIDE)
     or peripheral.find("Create_StockTicker")
   if not ticker then
     error("No Create_StockTicker. Attach a Stock Ticker to the computer.", 0)
   end
+  return ticker
+end
 
+-- Ищет CC Advanced Monitor (нужен только для текстового бэкенда).
+function M.findMonitor(config)
   local monitor = config.MONITOR_SIDE and peripheral.wrap(config.MONITOR_SIDE)
     or peripheral.find("monitor")
     or peripheral.find("monitor_advanced")
   if not monitor then
     error("No monitor. Attach an Advanced Monitor.", 0)
   end
+  return monitor
+end
 
-  return ticker, monitor
+-- Обратная совместимость: оба сразу (текстовый путь без GPU).
+function M.find(config)
+  return M.findTicker(config), M.findMonitor(config)
 end
 
 return M
@@ -262,7 +387,7 @@ F["pocket.lua"] = [=[
 local config   = require("config")
 local stock    = require("stock")
 local ui_logic = require("ui_logic")
-local render   = require("render")
+local render   = require("render_text")
 local net      = require("net")
 
 if not net.open(config.MODEM_SIDE) then
@@ -405,7 +530,241 @@ while true do
   end
 end
 ]=]
-F["render.lua"] = [=[
+F["render_gpu.lua"] = [=[
+-- GPU-рендер (Tom's Peripherals). Пиксельные плитки, крупный текст, реальные
+-- иконки (Phase 3). Полноцвет ARGB — палитру не перекраиваем. Chrome — English
+-- ASCII. Возвращает хит-зоны в пикселях. Тач: тап=+step, sneak+тап=+16.
+local ui_logic = require("ui_logic")
+local M = {}
+
+local _icons = nil  -- модуль icons (инъекция через M.useIcons); nil = только глифы
+function M.useIcons(mod) _icons = mod end
+
+-- Стимпанк-палитра как ARGB 0xAARRGGBB.
+local C = {
+  bg       = 0xFF2A2925, -- тёмный андезит
+  panel    = 0xFF3A3833, -- панель
+  casing   = 0xFF8F8F86, -- андезит-корпус
+  casingHi = 0xFFC2C2B6, -- светлый андезит (bevel)
+  casingLo = 0xFF5A5A52, -- тёмный ридж
+  text     = 0xFFE8DEC8, -- парчмент
+  ink      = 0xFF1E1C18, -- near-black на светлом
+  muted    = 0xFF9A9486, -- приглушённый
+  brass    = 0xFFC8A24A, -- латунь — акцент
+  brassHi  = 0xFFE3C77A, -- светлая латунь
+  copper   = 0xFFB5512A, -- медь — danger/X
+}
+
+-- Цвет иконки-категории (пиксель-глиф, пока нет реальной текстуры).
+local CAT = {
+  Create = 0xFFC8A24A, Redstone = 0xFFB5512A, Resources = 0xFF6E90B0,
+  Wood = 0xFF7A5A38, Stone = 0xFF7E8A86, Building = 0xFFB5663B,
+  Other = 0xFF6B6458, All = 0xFF8F8F86,
+}
+M._C = C
+M._CAT = CAT
+
+-- размеры плитки в пикселях (подбираются in-game, см. TODO в spec)
+local TILE_W, TILE_H, GAP = 56, 44, 4
+
+M.defaultStep = 32
+
+function M.nextStep(step)
+  return ui_logic.nextStep4(step)
+end
+
+-- GPU полноцветный — перекрашивать палитру не нужно.
+function M.applyPalette(_surface) end
+
+function M.perPage(surface)
+  local w, h = surface.getSize()
+  local P = ui_logic.layoutPx(w, h)
+  return ui_logic.gridDims(P.grid, TILE_W, TILE_H, GAP).perPage
+end
+
+-- ===== Низкоуровневые помощники рисования =====
+local function rect(g, r, color)
+  g.filledRectangle(r.x1, r.y1, r.x2 - r.x1 + 1, r.y2 - r.y1 + 1, color)
+end
+
+-- beveled-панель: заливка + светлый верх/лево, тёмный низ/право (объём корпуса).
+local function bevel(g, r, face, hi, lo)
+  rect(g, r, face)
+  g.line(r.x1, r.y1, r.x2, r.y1, hi)
+  g.line(r.x1, r.y1, r.x1, r.y2, hi)
+  g.line(r.x1, r.y2, r.x2, r.y2, lo)
+  g.line(r.x2, r.y1, r.x2, r.y2, lo)
+end
+
+local function trunc(s, max)
+  if max <= 0 then return "" end
+  if #s <= max then return s end
+  if max <= 2 then return s:sub(1, max) end
+  return s:sub(1, max - 2) .. ".."
+end
+
+-- иконка предмета: реальная текстура (drawImage) если есть, иначе глиф категории.
+local function drawIcon(g, x, y, e)
+  if _icons then
+    local ref = _icons.get(e.id)
+    if ref then g.drawImage(x, y, ref); return end
+  end
+  local col = CAT[e.group] or C.muted
+  g.filledRectangle(x, y, 32, 32, col)
+  g.rectangle(x, y, 32, 32, C.ink)
+  g.filledRectangle(x + 12, y + 12, 8, 8, C.ink)
+end
+
+-- одна плитка предмета (иконка + сток + полное имя + бейдж корзины).
+local function drawTile(g, t, model)
+  local r, e = t.rect, t.entry
+  local inCart = ui_logic.basketQty(model.basket, e.id)
+  local pressed = model.pressed == e.id
+  local face = pressed and C.casingHi or C.panel
+  local frame = inCart > 0 and C.brass or C.casingLo
+  bevel(g, r, face, frame, frame)
+  drawIcon(g, r.x1 + 4, r.y1 + 4, e)
+  -- сток справа сверху
+  g.drawText(r.x1 + 40, r.y1 + 6, "x" .. e.count, C.muted, nil, 1)
+  -- бейдж корзины
+  if inCart > 0 then
+    g.drawText(r.x1 + 40, r.y1 + 18, "+" .. inCart, C.brass, nil, 1)
+  end
+  -- полное имя в 2 строки снизу
+  local lines = ui_logic.wrap2(e.display, 11)
+  g.drawText(r.x1 + 4, r.y2 - 18, lines[1], C.text, nil, 1)
+  if lines[2] ~= "" then g.drawText(r.x1 + 4, r.y2 - 8, lines[2], C.text, nil, 1) end
+end
+
+-- кнопка справа налево; возвращает rect и сдвигает rx.
+local function btnRow(g, state, label, face, fg)
+  local pad = 8
+  local wbtn = #label * 6 + pad * 2
+  local x1 = state.rx - wbtn + 1
+  local r = { x1 = x1, y1 = state.y1, x2 = state.rx, y2 = state.y2 }
+  bevel(g, r, face, C.casingHi, C.casingLo)
+  g.drawText(x1 + pad, state.y1 + 6, label, fg, nil, 1)
+  state.rx = x1 - state.pad
+  return r
+end
+
+function M.draw(surface, model)
+  local g = surface
+  local w, h = g.getSize()
+  local P = ui_logic.layoutPx(w, h)
+  g.filledRectangle(1, 1, w, h, C.bg)
+  local hit = { tiles = {}, chips = {} }
+
+  -- title: STORAGE + адрес справа (латунь)
+  bevel(g, P.title, C.panel, C.casingHi, C.casingLo)
+  g.drawText(P.title.x1 + 6, P.title.y1 + 4, "STORAGE", C.brass, nil, 1)
+  rect(g, P.addr, C.brass)
+  g.drawText(P.addr.x1 + 6, P.addr.y1 + 4, trunc("Deliver: " .. (model.address or "?") .. " >", 22), C.bg, nil, 1)
+  hit.addr = P.addr
+
+  -- search
+  local focused = model.searchFocus
+  rect(g, P.search, focused and C.brass or C.panel)
+  local q = (model.query ~= "" and model.query) or "type to filter..."
+  g.drawText(P.search.x1 + 6, P.search.y1 + 3, "Search: " .. q, focused and C.bg or C.text, nil, 1)
+  g.drawText(P.search.x2 - 80, P.search.y1 + 3, #model.items .. " items", focused and C.bg or C.muted, nil, 1)
+  hit.search = P.search
+
+  -- чипы категорий
+  rect(g, P.chips, C.bg)
+  local chips = ui_logic.chips(model.groups, P.chips.x1 + 2, P.chips.y1, w, 1)
+  local cx = P.chips.x1 + 4
+  for _, c in ipairs(chips) do
+    local active = (c.group == model.group)
+    local wlab = #c.label * 6 + 12
+    local r = { x1 = cx, y1 = P.chips.y1, x2 = cx + wlab - 1, y2 = P.chips.y2 }
+    bevel(g, r, active and C.brass or C.casing, active and C.brassHi or C.casingHi, C.casingLo)
+    g.drawText(cx + 6, P.chips.y1 + 4, c.label, active and C.bg or C.ink, nil, 1)
+    hit.chips[#hit.chips + 1] = { rect = r, group = c.group }
+    cx = cx + wlab + 4
+    if cx > w then break end
+  end
+
+  -- грид плиток
+  local dims = ui_logic.gridDims(P.grid, TILE_W, TILE_H, GAP)
+  local step = { x = TILE_W + GAP, y = TILE_H + GAP }
+  local pg = ui_logic.page(model.items, model.scroll or 0, dims.perPage)
+  model.scroll = pg.scroll
+  for i, e in ipairs(pg.slice) do
+    local idx = i - 1
+    local col = idx % dims.cols
+    local row = math.floor(idx / dims.cols)
+    local x1 = P.grid.x1 + col * step.x
+    local y1 = P.grid.y1 + row * step.y
+    local r = { x1 = x1, y1 = y1, x2 = x1 + TILE_W - 1, y2 = y1 + TILE_H - 1 }
+    local t = { entry = e, rect = r }
+    drawTile(g, t, model)
+    hit.tiles[#hit.tiles + 1] = { rect = r, entry = e }
+  end
+
+  -- scroll-колонка: стрелки грида
+  rect(g, P.scroll, C.bg)
+  if pg.hasUp then
+    bevel(g, P.up, C.brass, C.brassHi, C.casingLo)
+    g.drawText(P.up.x1 + 6, P.up.y1 + 8, "^", C.bg, nil, 2)
+    hit.up = P.up
+  end
+  if pg.hasDown then
+    bevel(g, P.down, C.brass, C.brassHi, C.casingLo)
+    g.drawText(P.down.x1 + 6, P.down.y1 + 8, "v", C.bg, nil, 2)
+    hit.down = P.down
+  end
+
+  -- панель корзины (слева) с собственной прокруткой
+  local totals = ui_logic.basketTotals(model.basket)
+  bevel(g, P.cart, C.panel, C.casingHi, C.casingLo)
+  g.drawText(P.cart.x1 + 6, P.cart.y1 + 4, trunc("CART " .. totals.units .. "u", 16), C.brass, nil, 1)
+  local list = ui_logic.basketList(model.basket)
+  local rowH = 12
+  local listTop = P.cart.y1 + 22
+  local listRows = math.max(1, math.floor((P.cart.y2 - 20 - listTop) / rowH))
+  local cpg = ui_logic.page(list, model.cartScroll or 0, listRows)
+  model.cartScroll = cpg.scroll
+  if #list == 0 then
+    g.drawText(P.cart.x1 + 6, listTop, "empty - tap tiles", C.muted, nil, 1)
+  else
+    for i, b in ipairs(cpg.slice) do
+      local y = listTop + (i - 1) * rowH
+      g.drawText(P.cart.x1 + 6, y, trunc(b.qty .. "x " .. b.entry.display, 18), C.text, nil, 1)
+    end
+    if cpg.hasUp then
+      bevel(g, P.cartUp, C.casing, C.casingHi, C.casingLo)
+      g.drawText(P.cartUp.x1 + 6, P.cartUp.y1 + 4, "^", C.ink, nil, 1)
+      hit.cartUp = P.cartUp
+    end
+    if cpg.hasDown then
+      bevel(g, P.cartDown, C.casing, C.casingHi, C.casingLo)
+      g.drawText(P.cartDown.x1 + 6, P.cartDown.y1 + 4, "v", C.ink, nil, 1)
+      hit.cartDown = P.cartDown
+    end
+  end
+
+  -- статус-строка
+  rect(g, P.status, C.bg)
+  local hint = model.toast or "Tap +" .. (model.step or 32) .. "  |  Sneak+tap +16  |  Step cycles"
+  g.drawText(P.status.x1 + 4, P.status.y1 + 3, trunc(hint, 60), model.toast and C.brassHi or C.muted, nil, 1)
+
+  -- ряд кнопок (низ): Step / Clear / Confirm справа налево
+  rect(g, P.btns, C.bg)
+  local state = { rx = w - 4, y1 = P.btns.y1 + 2, y2 = P.btns.y2 - 2, pad = 6 }
+  hit.step = btnRow(g, state, "Step:" .. (model.step or 32), C.casing, C.ink)
+  if totals.lines > 0 then
+    hit.clear = btnRow(g, state, "Clear", C.copper, C.text)
+    hit.confirm = btnRow(g, state, "Confirm", C.brass, C.bg)
+  end
+
+  if g.sync then g.sync() end
+  return hit
+end
+
+return M
+]=]
+F["render_text.lua"] = [=[
 -- Рендер грид-магазина. Скин Create/стимпанк: андезит-корпус + латунь-акцент.
 -- Палитра перекраивается через setPaletteColour. Chrome — English ASCII
 -- (шрифт CC без кириллицы). Возвращает хит-зоны.
@@ -683,6 +1042,21 @@ function M.draw(monitor, model)
   return hit
 end
 
+-- === Backend-интерфейс (общий с render_gpu) ===
+M.defaultStep = 1
+
+-- Цикл шага накопления для тач-монитора: 1 → 8 → 64 → 1.
+function M.nextStep(step)
+  return ui_logic.nextStep(step)
+end
+
+-- Сколько плиток на странице при текущем размере поверхности (символы).
+function M.perPage(surface)
+  local w, h = surface.getSize()
+  local L = ui_logic.layout(w, h)
+  return ui_logic.gridDims(L.grid, 12, 6, 1).perPage
+end
+
 return M
 ]=]
 F["server.lua"] = [=[
@@ -695,7 +1069,7 @@ local stock       = require("stock")
 local ui_logic    = require("ui_logic")
 local order       = require("order")
 local peripherals = require("peripherals")
-local render      = require("render")
+local render_text = require("render_text")
 local net         = require("net")
 
 local function readFile(path)
@@ -706,8 +1080,24 @@ local function readFile(path)
   return data
 end
 
-local ticker, monitor = peripherals.find(config)
-render.applyPalette(monitor)
+local ticker = peripherals.findTicker(config)
+-- Бэкенд рендера: есть Tom's GPU → пиксельный render_gpu на его мониторе;
+-- нет → символьный render_text на CC-мониторе (старое поведение).
+-- Монитор CC требуется ТОЛЬКО для текстового бэкенда: GPU-путь не нуждается в нём.
+local backend, surface
+local gpu = peripheral.find("tm_gpu")
+if gpu then
+  backend = require("render_gpu")
+  surface = gpu
+  local icons = require("icons")
+  icons.initRuntime(gpu)
+  backend.useIcons(icons)
+else
+  local monitor = peripherals.findMonitor(config)
+  backend = render_text
+  surface = monitor
+end
+backend.applyPalette(surface)
 local modemSide = net.open(config.MODEM_SIDE) -- nil = модема нет, работаем как монитор без раздачи
 names.load(readFile)
 local addrList = addresses.parse(readFile("addresses.cfg"))
@@ -717,7 +1107,7 @@ local model = {
   query = "", searchFocus = false, scroll = 0,
   addresses = addrList, addrIdx = 1, address = addresses.default(addrList),
   toast = nil, keypad = nil,
-  basket = ui_logic.basketNew(), step = 1,
+  basket = ui_logic.basketNew(), step = backend.defaultStep,
 }
 local allItems = {}
 local hit = {}
@@ -729,9 +1119,7 @@ local function rebuild()
 end
 
 local function gridPerPage()
-  local w, h = monitor.getSize()
-  local L = ui_logic.layout(w, h)
-  return ui_logic.gridDims(L.grid, 12, 6, 1).perPage
+  return backend.perPage(surface)
 end
 
 local function refreshStock()
@@ -746,7 +1134,7 @@ local function refreshStock()
 end
 
 local function redraw()
-  hit = render.draw(monitor, model)
+  hit = backend.draw(surface, model)
 end
 
 local function refreshLoop()
@@ -757,7 +1145,7 @@ local function refreshLoop()
   end
 end
 
-local function handleTouch(x, y)
+local function handleTouch(x, y, sneaking)
   model.pressed = nil
   if ui_logic.inside(hit.search, x, y) then
     model.searchFocus = true
@@ -777,8 +1165,16 @@ local function handleTouch(x, y)
     model.scroll = model.scroll + gridPerPage()
     return
   end
+  if hit.cartUp and ui_logic.inside(hit.cartUp, x, y) then
+    model.cartScroll = (model.cartScroll or 0) - 1
+    return
+  end
+  if hit.cartDown and ui_logic.inside(hit.cartDown, x, y) then
+    model.cartScroll = (model.cartScroll or 0) + 1
+    return
+  end
   if hit.step and ui_logic.inside(hit.step, x, y) then
-    model.step = ui_logic.nextStep(model.step)
+    model.step = backend.nextStep(model.step)
     return
   end
   if hit.clear and ui_logic.inside(hit.clear, x, y) then
@@ -807,7 +1203,8 @@ local function handleTouch(x, y)
   end
   for _, it in ipairs(hit.tiles or {}) do
     if ui_logic.inside(it.rect, x, y) then
-      ui_logic.basketAdd(model.basket, it.entry, model.step)
+      local delta = sneaking and 16 or model.step
+      ui_logic.basketAdd(model.basket, it.entry, delta)
       model.pressed = it.entry.id
       return
     end
@@ -820,6 +1217,9 @@ local function inputLoop()
     local name = ev[1]
     if name == "monitor_touch" then
       handleTouch(ev[3], ev[4])
+      redraw()
+    elseif name == "tm_monitor_touch" then
+      handleTouch(ev[2], ev[3], ev[4]) -- (x, y, sneaking)
       redraw()
     elseif name == "char" and model.searchFocus then
       model.query = model.query .. ev[2]
@@ -1175,6 +1575,54 @@ end
 function M.nextStep(step)
   if step == 1 then return 8
   elseif step == 8 then return 64
+  else return 1 end
+end
+
+-- Пиксельная раскладка для GPU-монитора (Tom's Peripherals).
+-- Та же структура зон, что layout, но в пикселях и с крупными плитками.
+-- Слева — постоянная корзина со своей прокруткой; справа — грид; внизу — кнопки.
+function M.layoutPx(w, h)
+  local pad     = 4
+  local titleH  = 18
+  local searchH = 16
+  local chipsH  = 20
+  local btnH    = 22
+  local statusH = 14
+  local scrollW = 22                                  -- колонка стрелок грида справа
+  local cartW   = math.max(96, math.floor(w * 0.30))  -- левая панель корзины
+  local headY   = 1
+  local searchY = headY + titleH
+  local chipsY  = searchY + searchH
+  local bodyTop = chipsY + chipsH + pad
+  local btnY    = h - btnH + 1
+  local statusY = btnY - statusH
+  local bodyBot = statusY - pad
+  local gridX1  = cartW + pad + 1
+  local gridX2  = w - scrollW - pad
+  return {
+    title  = { x1 = 1,            y1 = headY,   x2 = w,           y2 = headY + titleH - 1 },
+    addr   = { x1 = w - 140 + 1,  y1 = headY,   x2 = w,           y2 = headY + titleH - 1 },
+    search = { x1 = 1,            y1 = searchY, x2 = w,           y2 = searchY + searchH - 1 },
+    chips  = { x1 = 1,            y1 = chipsY,  x2 = w,           y2 = chipsY + chipsH - 1 },
+    grid   = { x1 = gridX1,       y1 = bodyTop, x2 = gridX2,      y2 = bodyBot },
+    scroll = { x1 = gridX2 + pad, y1 = bodyTop, x2 = w,           y2 = bodyBot },
+    up     = { x1 = gridX2 + pad, y1 = bodyTop, x2 = w,           y2 = bodyTop + 28 },
+    down   = { x1 = gridX2 + pad, y1 = bodyBot - 28, x2 = w,      y2 = bodyBot },
+    cart   = { x1 = 1,            y1 = bodyTop, x2 = cartW,       y2 = bodyBot },
+    cartUp   = { x1 = cartW - 24, y1 = bodyTop, x2 = cartW,       y2 = bodyTop + 18 },
+    cartDown = { x1 = cartW - 24, y1 = bodyBot - 18, x2 = cartW,  y2 = bodyBot },
+    cartScroll = { x1 = 1,        y1 = bodyTop + 20, x2 = cartW,  y2 = bodyBot - 20 },
+    status = { x1 = 1,            y1 = statusY, x2 = w,           y2 = btnY - 1 },
+    btns   = { x1 = 1,            y1 = btnY,    x2 = w,           y2 = h },
+    cartW = cartW, pad = pad,
+  }
+end
+
+-- Цикл шага накопления для GPU-тача: 1 → 16 → 32 → 64 → 1.
+function M.nextStep4(step)
+  if step == 1 then return 16
+  elseif step == 16 then return 32
+  elseif step == 32 then return 64
   else return 1 end
 end
 
