@@ -311,5 +311,23 @@ check("render_text.defaultStep = 1", render_text.defaultStep == 1)
 check("render_text.nextStep 1->8->64->1",
   render_text.nextStep(1) == 8 and render_text.nextStep(8) == 64 and render_text.nextStep(64) == 1)
 
+-- render_gpu backend basics
+do
+  package.path = "./test/?.lua;" .. package.path
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  check("render_gpu.defaultStep = 32", rg.defaultStep == 32)
+  check("render_gpu.nextStep = nextStep4",
+    rg.nextStep(1) == 16 and rg.nextStep(64) == 1)
+  local g = mockgpu.new(328, 200)
+  local P = ui.layoutPx(328, 200)
+  local expect = ui.gridDims(P.grid, 56, 44, 4).perPage
+  check("render_gpu.perPage = gridDims(layoutPx) по getSize",
+    rg.perPage(g) == expect)
+  check("render_gpu.applyPalette не падает (full-color no-op)",
+    (function() rg.applyPalette(g); return true end)())
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
