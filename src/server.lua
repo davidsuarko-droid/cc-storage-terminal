@@ -157,6 +157,7 @@ local function inputLoop()
       handleTouch(ev[3], ev[4])
       redraw()
     elseif name == "tm_monitor_touch" then
+      model._tap = tostring(ev[2]) .. ":" .. tostring(ev[3]) -- DBG
       handleTouch(ev[2], ev[3], ev[4]) -- (x, y, sneaking)
       redraw()
     elseif name == "char" and model.searchFocus then

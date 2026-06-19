@@ -287,6 +287,9 @@ function M.draw(surface, model)
     hit.confirm = btnRow(g, state, "Confirm", C.brass, C.bg)
   end
 
+  -- ВРЕМЕННЫЙ DBG-оверлей: размер экрана + последний тап (для отладки touch/layout)
+  g.drawText(2, 2, ("DBG %dx%d tap=%s"):format(w, h, model._tap or "-"), 0xFFFF3030, C.transp, 1)
+
   if g.sync then g.sync() end
   return hit
 end
