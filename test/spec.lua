@@ -274,6 +274,21 @@ check("net.kind читает t", net.kind({ t = "stock" }) == "stock")
 check("net.kind на не-таблице nil", net.kind("nope") == nil)
 check("net.kind на nil nil", net.kind(nil) == nil)
 
+-- icons: чистые помощники маппинга
+local icons = require("icons")
+check("idToFile: namespace:name -> ns__name.png",
+  icons.idToFile("create:cogwheel") == "create__cogwheel.png")
+check("idToFile: без namespace -> minecraft__name.png",
+  icons.idToFile("apple") == "minecraft__apple.png")
+check("parseLayer0: item/generated отдаёт layer0",
+  icons.parseLayer0({ parent = "minecraft:item/generated",
+    textures = { layer0 = "create:item/cogwheel" } }) == "create:item/cogwheel")
+check("parseLayer0: 3D/блок-модель без layer0 -> nil",
+  icons.parseLayer0({ parent = "create:block/cogwheel" }) == nil)
+check("parseLayer0: handheld тоже item-модель -> layer0",
+  icons.parseLayer0({ parent = "minecraft:item/handheld",
+    textures = { layer0 = "minecraft:item/iron_pickaxe" } }) == "minecraft:item/iron_pickaxe")
+
 -- layoutPx: пиксельная раскладка GPU (зоны не пересекаются, грид непустой)
 do
   local ui = require("ui_logic")
