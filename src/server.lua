@@ -26,6 +26,9 @@ local gpu = peripheral.find("tm_gpu")
 if gpu then
   backend = require("render_gpu")
   surface = gpu
+  local icons = require("icons")
+  icons.initRuntime(gpu)
+  backend.useIcons(icons)
 else
   backend = render_text
   surface = monitor

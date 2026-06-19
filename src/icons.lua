@@ -80,4 +80,27 @@ function M.get(id)
   return ref
 end
 
+-- Боевая настройка под CC: чтение с диска или wget, decode через GPU.
+function M.initRuntime(gpu)
+  M.configure({
+    exists = function(p) return fs.exists(p) end,
+    fetch = function(url)
+      local file = url:match("[^/]+$")
+      local path = cfg.dir .. "/" .. file
+      if fs.exists(path) then
+        local h = fs.open(path, "rb"); local b = h.readAll(); h.close(); return b
+      end
+      local resp = http and http.get(url, nil, true) -- binary
+      if not resp then return nil end
+      local b = resp.readAll(); resp.close()
+      if b then
+        if not fs.exists(cfg.dir) then fs.makeDir(cfg.dir) end
+        local h = fs.open(path, "wb"); h.write(b); h.close()
+      end
+      return b
+    end,
+    decode = function(bytes) return gpu.decodeImage(bytes) end,
+  })
+end
+
 return M

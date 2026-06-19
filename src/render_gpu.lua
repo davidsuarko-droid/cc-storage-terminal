@@ -4,6 +4,9 @@
 local ui_logic = require("ui_logic")
 local M = {}
 
+local _icons = nil  -- модуль icons (инъекция через M.useIcons); nil = только глифы
+function M.useIcons(mod) _icons = mod end
+
 -- Стимпанк-палитра как ARGB 0xAARRGGBB.
 local C = {
   bg       = 0xFF2A2925, -- тёмный андезит
@@ -67,13 +70,16 @@ local function trunc(s, max)
   return s:sub(1, max - 2) .. ".."
 end
 
--- Пиксель-глиф категории: 32x32 блок цвета категории с рамкой (заглушка вместо
--- реальной текстуры; Phase 3 заменит на drawImage).
-local function catIcon(g, x, y, group)
-  local col = CAT[group] or C.muted
+-- иконка предмета: реальная текстура (drawImage) если есть, иначе глиф категории.
+local function drawIcon(g, x, y, e)
+  if _icons then
+    local ref = _icons.get(e.id)
+    if ref then g.drawImage(x, y, ref); return end
+  end
+  local col = CAT[e.group] or C.muted
   g.filledRectangle(x, y, 32, 32, col)
   g.rectangle(x, y, 32, 32, C.ink)
-  g.filledRectangle(x + 12, y + 12, 8, 8, C.ink) -- метка-«ядро»
+  g.filledRectangle(x + 12, y + 12, 8, 8, C.ink)
 end
 
 -- одна плитка предмета (иконка + сток + полное имя + бейдж корзины).
@@ -84,7 +90,7 @@ local function drawTile(g, t, model)
   local face = pressed and C.casingHi or C.panel
   local frame = inCart > 0 and C.brass or C.casingLo
   bevel(g, r, face, frame, frame)
-  catIcon(g, r.x1 + 4, r.y1 + 4, e.group)
+  drawIcon(g, r.x1 + 4, r.y1 + 4, e)
   -- сток справа сверху
   g.drawText(r.x1 + 40, r.y1 + 6, "x" .. e.count, C.muted, nil, 1)
   -- бейдж корзины

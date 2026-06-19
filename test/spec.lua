@@ -394,5 +394,43 @@ do
     (function() for _, c in ipairs(g._calls) do if c.op == "drawText" and c.s and c.s:find("Cogwheel", 1, true) then return true end end return false end)())
 end
 
+-- render_gpu: использует реальную иконку, когда icons.get отдаёт ref
+do
+  local mockgpu = require("mock-gpu")
+  local icons = require("icons")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  local g = mockgpu.new(328, 200)
+  -- icons настроен отдавать ref для всех id (фейк-байты)
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 8,
+    fetch = function(url) return "BYTES" end,
+    decode = function(bytes) return g.decodeImage(bytes) end,
+  })
+  rg.useIcons(icons)  -- инъекция icons-модуля в рендер
+  local model = {
+    items = { { id = "create:cogwheel", display = "Cogwheel", count = 128, group = "Create" } },
+    groups = { "All" }, group = "All", query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32,
+  }
+  rg.draw(g, model)
+  check("gpu.draw: вызвал drawImage для реальной иконки",
+    (function() for _, c in ipairs(g._calls) do if c.op == "drawImage" then return true end end return false end)())
+end
+-- и фолбэк: без icons рисует глиф (filledRectangle), не падает
+do
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  rg.useIcons(nil)
+  local g = mockgpu.new(328, 200)
+  local model = {
+    items = { { id = "create:weird_block", display = "Weird", count = 1, group = "Create" } },
+    groups = { "All" }, group = "All", query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32,
+  }
+  check("gpu.draw без icons не падает", (function() rg.draw(g, model); return true end)())
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
