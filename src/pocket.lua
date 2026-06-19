@@ -4,7 +4,7 @@
 local config   = require("config")
 local stock    = require("stock")
 local ui_logic = require("ui_logic")
-local render   = require("render")
+local render   = require("render_text")
 local net      = require("net")
 
 if not net.open(config.MODEM_SIDE) then
