@@ -98,6 +98,14 @@ local function handleTouch(x, y, sneaking)
     model.scroll = model.scroll + gridPerPage()
     return
   end
+  if hit.cartUp and ui_logic.inside(hit.cartUp, x, y) then
+    model.cartScroll = (model.cartScroll or 0) - 1
+    return
+  end
+  if hit.cartDown and ui_logic.inside(hit.cartDown, x, y) then
+    model.cartScroll = (model.cartScroll or 0) + 1
+    return
+  end
   if hit.step and ui_logic.inside(hit.step, x, y) then
     model.step = backend.nextStep(model.step)
     return

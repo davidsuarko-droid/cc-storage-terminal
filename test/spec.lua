@@ -329,5 +329,33 @@ do
     (function() rg.applyPalette(g); return true end)())
 end
 
+-- render_gpu.draw produces tiles + hit zones + calls the GPU
+do
+  local mockgpu = require("mock-gpu")
+  local rg = require("render_gpu")
+  local ui = require("ui_logic")
+  local g = mockgpu.new(328, 200)
+  local model = {
+    items = {
+      { id = "create:cogwheel", display = "Cogwheel", count = 128, group = "Create" },
+      { id = "minecraft:iron_ingot", display = "Iron Ingot", count = 512, group = "Resources" },
+    },
+    groups = { "All", "Create", "Resources" }, group = "All",
+    query = "", searchFocus = false, scroll = 0,
+    address = "Main", basket = ui.basketNew(), step = 32, toast = nil,
+  }
+  ui.basketAdd(model.basket, model.items[1], 32)
+  local hit = rg.draw(g, model)
+  check("gpu.draw: вернул плитки (2 items)", #hit.tiles == 2)
+  check("gpu.draw: плитка несёт entry", hit.tiles[1].entry.id == "create:cogwheel")
+  check("gpu.draw: есть search/addr хит-зоны", hit.search ~= nil and hit.addr ~= nil)
+  check("gpu.draw: есть step-кнопка", hit.step ~= nil)
+  check("gpu.draw: confirm появился (корзина непуста)", hit.confirm ~= nil)
+  check("gpu.draw: рисовал на GPU (filledRectangle вызван)",
+    (function() for _, c in ipairs(g._calls) do if c.op == "filledRectangle" then return true end end return false end)())
+  check("gpu.draw: писал текст имени предмета",
+    (function() for _, c in ipairs(g._calls) do if c.op == "drawText" and c.s and c.s:find("Cogwheel", 1, true) then return true end end return false end)())
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
