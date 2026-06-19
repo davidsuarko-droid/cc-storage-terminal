@@ -588,6 +588,46 @@ function M.perPage(surface)
   return ui_logic.gridDims(P.grid, TILE_W, TILE_H, GAP).perPage
 end
 
+-- ===== Clip-прокси =====
+-- Tom's GPU drawText/filledRectangle падают "Out of boundary", если рисунок
+-- вылазит за экран (мелкий монитор → layout/текст не влезает). Оборачиваем
+-- surface: клампим прямоугольники в [1..W]x[1..H], текст обрезаем по реальной
+-- ширине (getTextLength), всё что целиком снаружи — пропускаем.
+local function clamp(v, lo, hi)
+  if v < lo then return lo elseif v > hi then return hi else return v end
+end
+
+local function makeClip(s, W, H)
+  local c = { _raw = s }
+  function c.getSize() return W, H end
+  function c.getTextLength(t, size) return s.getTextLength(t, size) end
+  function c.filledRectangle(x, y, w, h, col)
+    local x2, y2 = x + w - 1, y + h - 1
+    if x2 < 1 or y2 < 1 or x > W or y > H then return end
+    x, y, x2, y2 = clamp(x, 1, W), clamp(y, 1, H), clamp(x2, 1, W), clamp(y2, 1, H)
+    s.filledRectangle(x, y, x2 - x + 1, y2 - y + 1, col)
+  end
+  function c.rectangle(x, y, w, h, col)
+    if x < 1 or y < 1 or x + w - 1 > W or y + h - 1 > H then return end -- контур не клампим, пропускаем
+    s.rectangle(x, y, w, h, col)
+  end
+  function c.drawText(x, y, t, fg, bg, size, pad)
+    size = size or 1
+    if x < 1 or y < 1 or y > H then return end
+    if s.getTextLength then
+      while #t > 0 and x + s.getTextLength(t, size) - 1 > W do t = t:sub(1, #t - 1) end
+    end
+    if #t == 0 then return end
+    s.drawText(x, y, t, fg, bg, size, pad)
+  end
+  function c.drawImage(x, y, ref)
+    if x < 1 or y < 1 or x > W or y > H then return end
+    s.drawImage(x, y, ref)
+  end
+  function c.sync() if s.sync then s.sync() end end
+  return c
+end
+
 -- ===== Низкоуровневые помощники рисования =====
 local function rect(g, r, color)
   g.filledRectangle(r.x1, r.y1, r.x2 - r.x1 + 1, r.y2 - r.y1 + 1, color)
@@ -658,8 +698,8 @@ local function btnRow(g, state, label, face, fg)
 end
 
 function M.draw(surface, model)
-  local g = surface
-  local w, h = g.getSize()
+  local w, h = surface.getSize()
+  local g = makeClip(surface, w, h)
   local P = ui_logic.layoutPx(w, h)
   g.filledRectangle(1, 1, w, h, C.bg)
   local hit = { tiles = {}, chips = {} }

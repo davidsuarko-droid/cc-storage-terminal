@@ -15,6 +15,7 @@ function M.new(w, h)
   function gpu.filledRectangle(x, y, ww, hh, c) rec("filledRectangle", { x = x, y = y, w = ww, h = hh, c = c }) end
   function gpu.rectangle(x, y, ww, hh, c) rec("rectangle", { x = x, y = y, w = ww, h = hh, c = c }) end
   function gpu.drawText(x, y, s, fg, bg, size, pad) rec("drawText", { x = x, y = y, s = s, fg = fg, bg = bg, size = size, pad = pad }) end
+  function gpu.getTextLength(s, size) return #tostring(s) * 6 * (size or 1) end
   function gpu.drawImage(x, y, ref) rec("drawImage", { x = x, y = y, ref = ref }) end
   function gpu.decodeImage(bytes)
     nextId = nextId + 1
