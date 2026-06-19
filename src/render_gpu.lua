@@ -20,6 +20,7 @@ local C = {
   brass    = 0xFFC8A24A, -- латунь — акцент
   brassHi  = 0xFFE3C77A, -- светлая латунь
   copper   = 0xFFB5512A, -- медь — danger/X
+  transp   = 0x00000000, -- прозрачный bg для drawText (Tom's GPU не глотает nil)
 }
 
 -- Цвет иконки-категории (пиксель-глиф, пока нет реальной текстуры).
@@ -60,7 +61,7 @@ local function rect(g, r, color)
 end
 
 -- beveled-панель: заливка + светлый верх/лево, тёмный низ/право (объём корпуса).
--- Рёбра — 1px-полоски filledRectangle (у Tom's GPU нет line/drawLine).
+-- Рёбра — 1px-полоски filledRectangle (дёшево и точно для прямых граней).
 local function bevel(g, r, face, hi, lo)
   rect(g, r, face)
   local w = r.x2 - r.x1 + 1
@@ -100,15 +101,15 @@ local function drawTile(g, t, model)
   bevel(g, r, face, frame, frame)
   drawIcon(g, r.x1 + 4, r.y1 + 4, e)
   -- сток справа сверху
-  g.drawText(r.x1 + 40, r.y1 + 6, "x" .. e.count, C.muted, nil, 1)
+  g.drawText(r.x1 + 40, r.y1 + 6, "x" .. e.count, C.muted, C.transp, 1)
   -- бейдж корзины
   if inCart > 0 then
-    g.drawText(r.x1 + 40, r.y1 + 18, "+" .. inCart, C.brass, nil, 1)
+    g.drawText(r.x1 + 40, r.y1 + 18, "+" .. inCart, C.brass, C.transp, 1)
   end
   -- полное имя в 2 строки снизу
   local lines = ui_logic.wrap2(e.display, 11)
-  g.drawText(r.x1 + 4, r.y2 - 18, lines[1], C.text, nil, 1)
-  if lines[2] ~= "" then g.drawText(r.x1 + 4, r.y2 - 8, lines[2], C.text, nil, 1) end
+  g.drawText(r.x1 + 4, r.y2 - 18, lines[1], C.text, C.transp, 1)
+  if lines[2] ~= "" then g.drawText(r.x1 + 4, r.y2 - 8, lines[2], C.text, C.transp, 1) end
 end
 
 -- кнопка справа налево; возвращает rect и сдвигает rx.
@@ -118,7 +119,7 @@ local function btnRow(g, state, label, face, fg)
   local x1 = state.rx - wbtn + 1
   local r = { x1 = x1, y1 = state.y1, x2 = state.rx, y2 = state.y2 }
   bevel(g, r, face, C.casingHi, C.casingLo)
-  g.drawText(x1 + pad, state.y1 + 6, label, fg, nil, 1)
+  g.drawText(x1 + pad, state.y1 + 6, label, fg, C.transp, 1)
   state.rx = x1 - state.pad
   return r
 end
@@ -132,17 +133,17 @@ function M.draw(surface, model)
 
   -- title: STORAGE + адрес справа (латунь)
   bevel(g, P.title, C.panel, C.casingHi, C.casingLo)
-  g.drawText(P.title.x1 + 6, P.title.y1 + 4, "STORAGE", C.brass, nil, 1)
+  g.drawText(P.title.x1 + 6, P.title.y1 + 4, "STORAGE", C.brass, C.transp, 1)
   rect(g, P.addr, C.brass)
-  g.drawText(P.addr.x1 + 6, P.addr.y1 + 4, trunc("Deliver: " .. (model.address or "?") .. " >", 22), C.bg, nil, 1)
+  g.drawText(P.addr.x1 + 6, P.addr.y1 + 4, trunc("Deliver: " .. (model.address or "?") .. " >", 22), C.bg, C.transp, 1)
   hit.addr = P.addr
 
   -- search
   local focused = model.searchFocus
   rect(g, P.search, focused and C.brass or C.panel)
   local q = (model.query ~= "" and model.query) or "type to filter..."
-  g.drawText(P.search.x1 + 6, P.search.y1 + 3, "Search: " .. q, focused and C.bg or C.text, nil, 1)
-  g.drawText(P.search.x2 - 80, P.search.y1 + 3, #model.items .. " items", focused and C.bg or C.muted, nil, 1)
+  g.drawText(P.search.x1 + 6, P.search.y1 + 3, "Search: " .. q, focused and C.bg or C.text, C.transp, 1)
+  g.drawText(P.search.x2 - 80, P.search.y1 + 3, #model.items .. " items", focused and C.bg or C.muted, C.transp, 1)
   hit.search = P.search
 
   -- чипы категорий
@@ -154,7 +155,7 @@ function M.draw(surface, model)
     local wlab = #c.label * 6 + 12
     local r = { x1 = cx, y1 = P.chips.y1, x2 = cx + wlab - 1, y2 = P.chips.y2 }
     bevel(g, r, active and C.brass or C.casing, active and C.brassHi or C.casingHi, C.casingLo)
-    g.drawText(cx + 6, P.chips.y1 + 4, c.label, active and C.bg or C.ink, nil, 1)
+    g.drawText(cx + 6, P.chips.y1 + 4, c.label, active and C.bg or C.ink, C.transp, 1)
     hit.chips[#hit.chips + 1] = { rect = r, group = c.group }
     cx = cx + wlab + 4
     if cx > w then break end
@@ -181,19 +182,19 @@ function M.draw(surface, model)
   rect(g, P.scroll, C.bg)
   if pg.hasUp then
     bevel(g, P.up, C.brass, C.brassHi, C.casingLo)
-    g.drawText(P.up.x1 + 6, P.up.y1 + 8, "^", C.bg, nil, 2)
+    g.drawText(P.up.x1 + 6, P.up.y1 + 8, "^", C.bg, C.transp, 2)
     hit.up = P.up
   end
   if pg.hasDown then
     bevel(g, P.down, C.brass, C.brassHi, C.casingLo)
-    g.drawText(P.down.x1 + 6, P.down.y1 + 8, "v", C.bg, nil, 2)
+    g.drawText(P.down.x1 + 6, P.down.y1 + 8, "v", C.bg, C.transp, 2)
     hit.down = P.down
   end
 
   -- панель корзины (слева) с собственной прокруткой
   local totals = ui_logic.basketTotals(model.basket)
   bevel(g, P.cart, C.panel, C.casingHi, C.casingLo)
-  g.drawText(P.cart.x1 + 6, P.cart.y1 + 4, trunc("CART " .. totals.units .. "u", 16), C.brass, nil, 1)
+  g.drawText(P.cart.x1 + 6, P.cart.y1 + 4, trunc("CART " .. totals.units .. "u", 16), C.brass, C.transp, 1)
   local list = ui_logic.basketList(model.basket)
   local rowH = 12
   local listTop = P.cart.y1 + 22
@@ -201,20 +202,20 @@ function M.draw(surface, model)
   local cpg = ui_logic.page(list, model.cartScroll or 0, listRows)
   model.cartScroll = cpg.scroll
   if #list == 0 then
-    g.drawText(P.cart.x1 + 6, listTop, "empty - tap tiles", C.muted, nil, 1)
+    g.drawText(P.cart.x1 + 6, listTop, "empty - tap tiles", C.muted, C.transp, 1)
   else
     for i, b in ipairs(cpg.slice) do
       local y = listTop + (i - 1) * rowH
-      g.drawText(P.cart.x1 + 6, y, trunc(b.qty .. "x " .. b.entry.display, 18), C.text, nil, 1)
+      g.drawText(P.cart.x1 + 6, y, trunc(b.qty .. "x " .. b.entry.display, 18), C.text, C.transp, 1)
     end
     if cpg.hasUp then
       bevel(g, P.cartUp, C.casing, C.casingHi, C.casingLo)
-      g.drawText(P.cartUp.x1 + 6, P.cartUp.y1 + 4, "^", C.ink, nil, 1)
+      g.drawText(P.cartUp.x1 + 6, P.cartUp.y1 + 4, "^", C.ink, C.transp, 1)
       hit.cartUp = P.cartUp
     end
     if cpg.hasDown then
       bevel(g, P.cartDown, C.casing, C.casingHi, C.casingLo)
-      g.drawText(P.cartDown.x1 + 6, P.cartDown.y1 + 4, "v", C.ink, nil, 1)
+      g.drawText(P.cartDown.x1 + 6, P.cartDown.y1 + 4, "v", C.ink, C.transp, 1)
       hit.cartDown = P.cartDown
     end
   end
@@ -222,7 +223,7 @@ function M.draw(surface, model)
   -- статус-строка
   rect(g, P.status, C.bg)
   local hint = model.toast or "Tap +" .. (model.step or 32) .. "  |  Sneak+tap +16  |  Step cycles"
-  g.drawText(P.status.x1 + 4, P.status.y1 + 3, trunc(hint, 60), model.toast and C.brassHi or C.muted, nil, 1)
+  g.drawText(P.status.x1 + 4, P.status.y1 + 3, trunc(hint, 60), model.toast and C.brassHi or C.muted, C.transp, 1)
 
   -- ряд кнопок (низ): Step / Clear / Confirm справа налево
   rect(g, P.btns, C.bg)
