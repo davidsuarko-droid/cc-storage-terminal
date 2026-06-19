@@ -134,6 +134,114 @@ local config = {
 }
 return config
 ]=]
+F["icons.lua"] = [=[
+-- Иконки предметов для GPU-бэкенда. Чистые помощники (маппинг id→файл,
+-- разбор item-модели) + рантайм-загрузка (ленивый wget + decodeImage + LRU).
+-- Рантайм-часть использует CC API (fs/http), под тестом не вызывается.
+local M = {}
+
+-- id предмета → имя файла иконки. namespace:name → ns__name.png.
+-- Без namespace считаем minecraft.
+function M.idToFile(id)
+  local ns, name = id:match("^(.-):(.+)$")
+  if not ns then ns, name = "minecraft", id end
+  return ns .. "__" .. name .. ".png"
+end
+
+-- Из таблицы item-модели достать layer0 (плоская item-текстура).
+-- Возвращает строку-путь текстуры или nil (3D/блок-модель — пропускаем).
+function M.parseLayer0(model)
+  if not model or type(model) ~= "table" then return nil end
+  local parent = model.parent or ""
+  -- item/generated и item/handheld — плоские item-модели со слоями
+  local isItem = parent:find("item/generated", 1, true) or parent:find("item/handheld", 1, true)
+  if not isItem then return nil end
+  if model.textures and model.textures.layer0 then return model.textures.layer0 end
+  return nil
+end
+
+-- ===== Рантайм: ленивая загрузка + LRU =====
+-- Конфигурируется через DI (тест подменяет fetch/decode/fs).
+local cfg = {
+  baseUrl = "https://raw.githubusercontent.com/davidsuarko-droid/cc-storage-terminal/main/icons/",
+  dir = "/icons",
+  limit = 64,
+  exists = function(p) return fs and fs.exists(p) end,
+  -- читает PNG: сперва с диска, иначе wget по сети, кладёт на диск
+  fetch = function(url) return nil end,
+  decode = function(bytes) return nil end,
+}
+
+-- кэш: map[id]=ref, order = очередь использования (последний — свежий)
+local cache = {}
+local order = {}
+
+function M.configure(opts)
+  for k, v in pairs(opts or {}) do cfg[k] = v end
+  cache = {}; order = {}
+end
+
+function M.cacheCount()
+  local n = 0
+  for _ in pairs(cache) do n = n + 1 end
+  return n
+end
+
+local function touch(id)
+  for i, v in ipairs(order) do
+    if v == id then table.remove(order, i); break end
+  end
+  order[#order + 1] = id
+end
+
+local function evictIfNeeded()
+  while #order > cfg.limit do
+    local victim = table.remove(order, 1)
+    local ref = cache[victim]
+    cache[victim] = nil
+    if ref and ref.free then ref:free() end
+  end
+end
+
+-- Вернуть image-ref иконки для id или nil (нет файла/сети/декода).
+function M.get(id)
+  if cache[id] then touch(id); return cache[id] end
+  local file = M.idToFile(id)
+  local bytes = cfg.fetch(cfg.baseUrl .. file)
+  if not bytes then return nil end
+  local ok, ref = pcall(cfg.decode, bytes)
+  if not ok or not ref then return nil end
+  cache[id] = ref
+  touch(id)
+  evictIfNeeded()
+  return ref
+end
+
+-- Боевая настройка под CC: чтение с диска или wget, decode через GPU.
+function M.initRuntime(gpu)
+  M.configure({
+    exists = function(p) return fs.exists(p) end,
+    fetch = function(url)
+      local file = url:match("[^/]+$")
+      local path = cfg.dir .. "/" .. file
+      if fs.exists(path) then
+        local h = fs.open(path, "rb"); local b = h.readAll(); h.close(); return b
+      end
+      local resp = http and http.get(url, nil, true) -- binary
+      if not resp then return nil end
+      local b = resp.readAll(); resp.close()
+      if b then
+        if not fs.exists(cfg.dir) then fs.makeDir(cfg.dir) end
+        local h = fs.open(path, "wb"); h.write(b); h.close()
+      end
+      return b
+    end,
+    decode = function(bytes) return gpu.decodeImage(bytes) end,
+  })
+end
+
+return M
+]=]
 F["names.lua"] = [=[
 -- Карта кастомных имён id->ярлык + fallback-логика.
 local M = {}
@@ -412,6 +520,9 @@ F["render_gpu.lua"] = [=[
 local ui_logic = require("ui_logic")
 local M = {}
 
+local _icons = nil  -- модуль icons (инъекция через M.useIcons); nil = только глифы
+function M.useIcons(mod) _icons = mod end
+
 -- Стимпанк-палитра как ARGB 0xAARRGGBB.
 local C = {
   bg       = 0xFF2A2925, -- тёмный андезит
@@ -475,13 +586,16 @@ local function trunc(s, max)
   return s:sub(1, max - 2) .. ".."
 end
 
--- Пиксель-глиф категории: 32x32 блок цвета категории с рамкой (заглушка вместо
--- реальной текстуры; Phase 3 заменит на drawImage).
-local function catIcon(g, x, y, group)
-  local col = CAT[group] or C.muted
+-- иконка предмета: реальная текстура (drawImage) если есть, иначе глиф категории.
+local function drawIcon(g, x, y, e)
+  if _icons then
+    local ref = _icons.get(e.id)
+    if ref then g.drawImage(x, y, ref); return end
+  end
+  local col = CAT[e.group] or C.muted
   g.filledRectangle(x, y, 32, 32, col)
   g.rectangle(x, y, 32, 32, C.ink)
-  g.filledRectangle(x + 12, y + 12, 8, 8, C.ink) -- метка-«ядро»
+  g.filledRectangle(x + 12, y + 12, 8, 8, C.ink)
 end
 
 -- одна плитка предмета (иконка + сток + полное имя + бейдж корзины).
@@ -492,7 +606,7 @@ local function drawTile(g, t, model)
   local face = pressed and C.casingHi or C.panel
   local frame = inCart > 0 and C.brass or C.casingLo
   bevel(g, r, face, frame, frame)
-  catIcon(g, r.x1 + 4, r.y1 + 4, e.group)
+  drawIcon(g, r.x1 + 4, r.y1 + 4, e)
   -- сток справа сверху
   g.drawText(r.x1 + 40, r.y1 + 6, "x" .. e.count, C.muted, nil, 1)
   -- бейдж корзины
@@ -957,6 +1071,9 @@ local gpu = peripheral.find("tm_gpu")
 if gpu then
   backend = require("render_gpu")
   surface = gpu
+  local icons = require("icons")
+  icons.initRuntime(gpu)
+  backend.useIcons(icons)
 else
   backend = render_text
   surface = monitor
