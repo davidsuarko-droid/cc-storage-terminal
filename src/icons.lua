@@ -67,17 +67,25 @@ local function evictIfNeeded()
 end
 
 -- Вернуть image-ref иконки для id или nil (нет файла/сети/декода).
+-- Промах кэшируется sentinel-значением false, чтобы повторный вызов
+-- не запускал повторный http.get на каждом кадре (блокирующий HTTP-шторм).
 function M.get(id)
-  if cache[id] then touch(id); return cache[id] end
-  local file = M.idToFile(id)
-  local bytes = cfg.fetch(cfg.baseUrl .. file)
-  if not bytes then return nil end
-  local ok, ref = pcall(cfg.decode, bytes)
-  if not ok or not ref then return nil end
-  cache[id] = ref
+  local cached = cache[id]
+  if cached ~= nil then   -- хит: реальный ref или sentinel false
+    touch(id)
+    return cached ~= false and cached or nil
+  end
+  -- кэш холодный — пробуем загрузить
+  local bytes = cfg.fetch(cfg.baseUrl .. M.idToFile(id))
+  local ref
+  if bytes then
+    local ok, r = pcall(cfg.decode, bytes)
+    if ok and r then ref = r end
+  end
+  cache[id] = ref or false   -- ref при успехе, false (sentinel) при промахе
   touch(id)
   evictIfNeeded()
-  return ref
+  return ref   -- nil при промахе, ref при успехе
 end
 
 -- Боевая настройка под CC: чтение с диска или wget, decode через GPU.

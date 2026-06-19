@@ -432,5 +432,57 @@ do
   check("gpu.draw без icons не падает", (function() rg.draw(g, model); return true end)())
 end
 
+-- peripherals: условное требование монитора (Finding 1)
+do
+  local mock = require("mock-cc")
+  local peripherals = require("peripherals")
+
+  -- нет тикера → findTicker должна выбросить ошибку
+  mock.register("Create_StockTicker", nil)
+  mock.register("monitor", nil)
+  local ok1, e1 = pcall(peripherals.findTicker, {})
+  check("peripherals.findTicker: нет тикера → ошибка про StockTicker",
+    not ok1 and tostring(e1):find("StockTicker") ~= nil)
+
+  -- тикер есть, монитора нет → findTicker успешно (GPU-путь)
+  local fakeTicker = { stock = function() return {} end }
+  mock.register("Create_StockTicker", fakeTicker)
+  local ok2, res2 = pcall(peripherals.findTicker, {})
+  check("peripherals.findTicker: тикер есть, монитора нет → ok",
+    ok2 and res2 == fakeTicker)
+
+  -- монитора нет → findMonitor выбрасывает ошибку (текстовый путь)
+  mock.register("monitor", nil)
+  local ok3, e3 = pcall(peripherals.findMonitor, {})
+  check("peripherals.findMonitor: нет монитора → ошибка про monitor",
+    not ok3 and tostring(e3):find("monitor") ~= nil)
+
+  -- монитор есть → findMonitor возвращает его
+  local fakeMon = { getSize = function() return 50, 19 end }
+  mock.register("monitor", fakeMon)
+  local ok4, res4 = pcall(peripherals.findMonitor, {})
+  check("peripherals.findMonitor: монитор есть → ok",
+    ok4 and res4 == fakeMon)
+end
+
+-- icons: отрицательный кэш — fetch не повторяется при промахе (Finding 2)
+do
+  local icons = require("icons")
+  local fetchCount = 0
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 8,
+    fetch = function(_url) fetchCount = fetchCount + 1; return nil end,
+    decode = function(_bytes) return nil end,
+  })
+  local r1 = icons.get("minecraft:missing_item")
+  local r2 = icons.get("minecraft:missing_item")
+  check("icons.get: miss кэшируется — fetch вызван ровно 1 раз",
+    fetchCount == 1)
+  check("icons.get: при miss возвращает nil (не false)",
+    r1 == nil and r2 == nil)
+  check("icons.cacheCount: miss учитывается в счётчике кэша",
+    icons.cacheCount() == 1)
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end

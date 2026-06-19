@@ -18,9 +18,10 @@ local function readFile(path)
   return data
 end
 
-local ticker, monitor = peripherals.find(config)
+local ticker = peripherals.findTicker(config)
 -- Бэкенд рендера: есть Tom's GPU → пиксельный render_gpu на его мониторе;
 -- нет → символьный render_text на CC-мониторе (старое поведение).
+-- Монитор CC требуется ТОЛЬКО для текстового бэкенда: GPU-путь не нуждается в нём.
 local backend, surface
 local gpu = peripheral.find("tm_gpu")
 if gpu then
@@ -30,6 +31,7 @@ if gpu then
   icons.initRuntime(gpu)
   backend.useIcons(icons)
 else
+  local monitor = peripherals.findMonitor(config)
   backend = render_text
   surface = monitor
 end

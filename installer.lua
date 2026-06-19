@@ -204,17 +204,25 @@ local function evictIfNeeded()
 end
 
 -- Вернуть image-ref иконки для id или nil (нет файла/сети/декода).
+-- Промах кэшируется sentinel-значением false, чтобы повторный вызов
+-- не запускал повторный http.get на каждом кадре (блокирующий HTTP-шторм).
 function M.get(id)
-  if cache[id] then touch(id); return cache[id] end
-  local file = M.idToFile(id)
-  local bytes = cfg.fetch(cfg.baseUrl .. file)
-  if not bytes then return nil end
-  local ok, ref = pcall(cfg.decode, bytes)
-  if not ok or not ref then return nil end
-  cache[id] = ref
+  local cached = cache[id]
+  if cached ~= nil then   -- хит: реальный ref или sentinel false
+    touch(id)
+    return cached ~= false and cached or nil
+  end
+  -- кэш холодный — пробуем загрузить
+  local bytes = cfg.fetch(cfg.baseUrl .. M.idToFile(id))
+  local ref
+  if bytes then
+    local ok, r = pcall(cfg.decode, bytes)
+    if ok and r then ref = r end
+  end
+  cache[id] = ref or false   -- ref при успехе, false (sentinel) при промахе
   touch(id)
   evictIfNeeded()
-  return ref
+  return ref   -- nil при промахе, ref при успехе
 end
 
 -- Боевая настройка под CC: чтение с диска или wget, decode через GPU.
@@ -344,21 +352,30 @@ F["peripherals.lua"] = [=[
 -- Поиск тикера и монитора по типу (со страховкой override через сторону).
 local M = {}
 
-function M.find(config)
+-- Ищет Create_StockTicker (всегда обязателен).
+function M.findTicker(config)
   local ticker = config.TICKER_SIDE and peripheral.wrap(config.TICKER_SIDE)
     or peripheral.find("Create_StockTicker")
   if not ticker then
     error("No Create_StockTicker. Attach a Stock Ticker to the computer.", 0)
   end
+  return ticker
+end
 
+-- Ищет CC Advanced Monitor (нужен только для текстового бэкенда).
+function M.findMonitor(config)
   local monitor = config.MONITOR_SIDE and peripheral.wrap(config.MONITOR_SIDE)
     or peripheral.find("monitor")
     or peripheral.find("monitor_advanced")
   if not monitor then
     error("No monitor. Attach an Advanced Monitor.", 0)
   end
+  return monitor
+end
 
-  return ticker, monitor
+-- Обратная совместимость: оба сразу (текстовый путь без GPU).
+function M.find(config)
+  return M.findTicker(config), M.findMonitor(config)
 end
 
 return M
@@ -1063,9 +1080,10 @@ local function readFile(path)
   return data
 end
 
-local ticker, monitor = peripherals.find(config)
+local ticker = peripherals.findTicker(config)
 -- Бэкенд рендера: есть Tom's GPU → пиксельный render_gpu на его мониторе;
 -- нет → символьный render_text на CC-мониторе (старое поведение).
+-- Монитор CC требуется ТОЛЬКО для текстового бэкенда: GPU-путь не нуждается в нём.
 local backend, surface
 local gpu = peripheral.find("tm_gpu")
 if gpu then
@@ -1075,6 +1093,7 @@ if gpu then
   icons.initRuntime(gpu)
   backend.useIcons(icons)
 else
+  local monitor = peripherals.findMonitor(config)
   backend = render_text
   surface = monitor
 end
