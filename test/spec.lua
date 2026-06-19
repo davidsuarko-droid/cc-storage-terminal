@@ -274,6 +274,27 @@ check("net.kind читает t", net.kind({ t = "stock" }) == "stock")
 check("net.kind на не-таблице nil", net.kind("nope") == nil)
 check("net.kind на nil nil", net.kind(nil) == nil)
 
+-- layoutPx: пиксельная раскладка GPU (зоны не пересекаются, грид непустой)
+do
+  local ui = require("ui_logic")
+  local P = ui.layoutPx(328, 200)
+  check("layoutPx: title сверху (y1=1)", P.title.y1 == 1)
+  check("layoutPx: cart слева от грида (cart.x2 < grid.x1)", P.cart.x2 < P.grid.x1)
+  check("layoutPx: грид выше кнопок (grid.y2 < btns.y1)", P.grid.y2 < P.btns.y1)
+  check("layoutPx: кнопки в самом низу (btns.y2 == h)", P.btns.y2 == 200)
+  check("layoutPx: грид шире одной плитки (>=60px)", (P.grid.x2 - P.grid.x1 + 1) >= 60)
+  check("layoutPx: cart имеет свою прокрутку (cartUp выше cartDown)",
+    P.cartUp.y2 < P.cartDown.y1)
+  check("layoutPx: scroll-колонка правее грида (scroll.x1 > grid.x2)",
+    P.scroll.x1 > P.grid.x2)
+end
+-- nextStep4: цикл 1/16/32/64
+check("nextStep4 1->16->32->64->1", (function()
+  local u = require("ui_logic")
+  return u.nextStep4(1) == 16 and u.nextStep4(16) == 32
+     and u.nextStep4(32) == 64 and u.nextStep4(64) == 1
+end)())
+
 -- render_text backend methods (perPage / defaultStep / nextStep)
 local render_text = require("render_text")
 local function fakeSurface(w, h)
