@@ -13,8 +13,6 @@ function M.new(w, h)
   function gpu.fill(c) rec("fill", { c = c }) end
   function gpu.filledRectangle(x, y, ww, hh, c) rec("filledRectangle", { x = x, y = y, w = ww, h = hh, c = c }) end
   function gpu.rectangle(x, y, ww, hh, c) rec("rectangle", { x = x, y = y, w = ww, h = hh, c = c }) end
-  function gpu.line(x1, y1, x2, y2, c) rec("line", { x1 = x1, y1 = y1, x2 = x2, y2 = y2, c = c }) end
-  function gpu.lineS(x1, y1, x2, y2, c, s) rec("lineS", { x1 = x1, y1 = y1, x2 = x2, y2 = y2, c = c, s = s }) end
   function gpu.drawText(x, y, s, fg, bg, size, pad) rec("drawText", { x = x, y = y, s = s, fg = fg, bg = bg, size = size, pad = pad }) end
   function gpu.drawImage(x, y, ref) rec("drawImage", { x = x, y = y, ref = ref }) end
   function gpu.decodeImage(bytes)

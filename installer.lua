@@ -588,12 +588,15 @@ local function rect(g, r, color)
 end
 
 -- beveled-панель: заливка + светлый верх/лево, тёмный низ/право (объём корпуса).
+-- Рёбра — 1px-полоски filledRectangle (у Tom's GPU нет line/drawLine).
 local function bevel(g, r, face, hi, lo)
   rect(g, r, face)
-  g.line(r.x1, r.y1, r.x2, r.y1, hi)
-  g.line(r.x1, r.y1, r.x1, r.y2, hi)
-  g.line(r.x1, r.y2, r.x2, r.y2, lo)
-  g.line(r.x2, r.y1, r.x2, r.y2, lo)
+  local w = r.x2 - r.x1 + 1
+  local h = r.y2 - r.y1 + 1
+  g.filledRectangle(r.x1, r.y1, w, 1, hi) -- верх
+  g.filledRectangle(r.x1, r.y1, 1, h, hi) -- лево
+  g.filledRectangle(r.x1, r.y2, w, 1, lo) -- низ
+  g.filledRectangle(r.x2, r.y1, 1, h, lo) -- право
 end
 
 local function trunc(s, max)
