@@ -618,7 +618,8 @@ local function makeClip(s, W, H)
       while #t > 0 and x + s.getTextLength(t, size) - 1 > W do t = t:sub(1, #t - 1) end
     end
     if #t == 0 then return end
-    s.drawText(x, y, t, fg, bg, size, pad)
+    if pad then s.drawText(x, y, t, fg, bg, size, pad)
+    else s.drawText(x, y, t, fg, bg, size) end
   end
   function c.drawImage(x, y, ref)
     if x < 1 or y < 1 or x > W or y > H then return end
