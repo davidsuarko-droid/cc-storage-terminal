@@ -157,9 +157,18 @@ local function inputLoop()
       handleTouch(ev[3], ev[4])
       redraw()
     elseif name == "tm_monitor_touch" then
-      model._tap = tostring(ev[2]) .. ":" .. tostring(ev[3]) -- DBG
-      handleTouch(ev[2], ev[3], ev[4]) -- (x, y, sneaking)
-      redraw()
+      -- Tom's GPU touch event: первый параметр после имени = сторона/имя монитора (строка),
+      -- как у CC monitor_touch. Берём первые два числовых аргумента как x,y и булев как sneak.
+      local nums = {}
+      for i = 2, #ev do if type(ev[i]) == "number" then nums[#nums + 1] = ev[i] end end
+      local sneak = false
+      for i = 2, #ev do if type(ev[i]) == "boolean" then sneak = ev[i]; break end end
+      local tx, ty = nums[1], nums[2]
+      if tx and ty then
+        model._tap = tx .. ":" .. ty -- DBG
+        handleTouch(tx, ty, sneak)
+        redraw()
+      end
     elseif name == "char" and model.searchFocus then
       model.query = model.query .. ev[2]
       rebuild()

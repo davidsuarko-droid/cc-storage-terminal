@@ -23,6 +23,7 @@ function M.byGroup(entries, group)
 end
 
 function M.inside(rect, x, y)
+  if not rect or type(x) ~= "number" or type(y) ~= "number" then return false end
   return x >= rect.x1 and x <= rect.x2 and y >= rect.y1 and y <= rect.y2
 end
 

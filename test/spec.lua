@@ -120,6 +120,8 @@ local r = { x1 = 2, y1 = 2, x2 = 5, y2 = 5 }
 check("inside: внутри", ui.inside(r, 3, 4) == true)
 check("inside: на границе включительно", ui.inside(r, 5, 5) == true)
 check("inside: снаружи", ui.inside(r, 6, 4) == false)
+check("inside: строковый x → false (защита от tm_monitor_touch)", ui.inside(r, "monitor_0", 4) == false)
+check("inside: nil rect → false", ui.inside(nil, 3, 4) == false)
 check("clampQty: ниже 1 → 1", ui.clampQty(0, 64) == 1)
 check("clampQty: выше max → max", ui.clampQty(99, 64) == 64)
 check("clampQty: в диапазоне без изменений", ui.clampQty(10, 64) == 10)
