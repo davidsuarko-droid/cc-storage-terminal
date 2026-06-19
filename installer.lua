@@ -578,8 +578,20 @@ end
 -- вызвать refreshSize(): детектит подключённые блоки Tom's Monitor и аллоцирует
 -- буфер под их реальный пиксельный размер. Без него getSize() возвращает фантом,
 -- layout считается под чужой размер, и рисование уходит за экран ("Out of boundary").
+-- целевое разрешение (px на блок монитора). Дефолт Tom's = 16 → на 3×3 даёт
+-- 48×48 px, layout не влезает. Поднимаем → больше px, текст мельче, UI помещается.
+M.targetRes = 64
+
 function M.applyPalette(surface)
-  if surface and surface.refreshSize then surface.refreshSize() end
+  if not surface then return end
+  if surface.refreshSize then surface.refreshSize() end
+  if surface.setSize then
+    -- пробуем от высокого к низкому: невалидное разрешение не должно ронять старт
+    for _, res in ipairs({ M.targetRes, 48, 32, 16 }) do
+      if pcall(surface.setSize, res) then break end
+    end
+    if surface.refreshSize then surface.refreshSize() end
+  end
 end
 
 function M.perPage(surface)
