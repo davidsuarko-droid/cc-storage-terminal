@@ -274,5 +274,21 @@ check("net.kind читает t", net.kind({ t = "stock" }) == "stock")
 check("net.kind на не-таблице nil", net.kind("nope") == nil)
 check("net.kind на nil nil", net.kind(nil) == nil)
 
+-- render_text backend methods (perPage / defaultStep / nextStep)
+local render_text = require("render_text")
+local function fakeSurface(w, h)
+  return { getSize = function() return w, h end }
+end
+do
+  local ui = require("ui_logic")
+  local L = ui.layout(50, 19)
+  local expect = ui.gridDims(L.grid, 12, 6, 1).perPage
+  check("render_text.perPage = gridDims.perPage по getSize",
+    render_text.perPage(fakeSurface(50, 19)) == expect)
+end
+check("render_text.defaultStep = 1", render_text.defaultStep == 1)
+check("render_text.nextStep 1->8->64->1",
+  render_text.nextStep(1) == 8 and render_text.nextStep(8) == 64 and render_text.nextStep(64) == 1)
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end
