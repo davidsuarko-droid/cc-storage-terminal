@@ -40,8 +40,13 @@ function M.nextStep(step)
   return ui_logic.nextStep4(step)
 end
 
--- GPU полноцветный — перекрашивать палитру не нужно.
-function M.applyPalette(_surface) end
+-- GPU полноцветный — перекрашивать палитру не нужно. Но раз на старте надо
+-- вызвать refreshSize(): детектит подключённые блоки Tom's Monitor и аллоцирует
+-- буфер под их реальный пиксельный размер. Без него getSize() возвращает фантом,
+-- layout считается под чужой размер, и рисование уходит за экран ("Out of boundary").
+function M.applyPalette(surface)
+  if surface and surface.refreshSize then surface.refreshSize() end
+end
 
 function M.perPage(surface)
   local w, h = surface.getSize()

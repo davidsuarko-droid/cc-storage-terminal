@@ -9,6 +9,7 @@ function M.new(w, h)
   local function rec(op, t) t = t or {}; t.op = op; calls[#calls + 1] = t; return t end
   local gpu = { _calls = calls, _images = {} }
   function gpu.getSize() return w, h end
+  function gpu.refreshSize() rec("refreshSize") end
   function gpu.setSize(res) rec("setSize", { res = res }) end
   function gpu.fill(c) rec("fill", { c = c }) end
   function gpu.filledRectangle(x, y, ww, hh, c) rec("filledRectangle", { x = x, y = y, w = ww, h = hh, c = c }) end
