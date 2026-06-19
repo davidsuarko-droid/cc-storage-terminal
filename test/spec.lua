@@ -289,6 +289,28 @@ check("parseLayer0: handheld тоже item-модель -> layer0",
   icons.parseLayer0({ parent = "minecraft:item/handheld",
     textures = { layer0 = "minecraft:item/iron_pickaxe" } }) == "minecraft:item/iron_pickaxe")
 
+-- icons runtime: ленивый кэш + LRU + free при вытеснении
+do
+  local icons = require("icons")
+  local freed = {}
+  local fetched = {}
+  -- мок http/fs/decode через DI
+  icons.configure({
+    baseUrl = "http://x/", dir = "/icons", limit = 2,
+    exists = function(_) return false end,
+    fetch = function(url) fetched[#fetched + 1] = url; return "PNGBYTES:" .. url end,
+    decode = function(bytes) return { bytes = bytes, free = function(self) freed[#freed + 1] = self.bytes end } end,
+  })
+  local a = icons.get("create:cogwheel")
+  check("icons.get: декодировал и вернул ref", a ~= nil and a.bytes:find("create__cogwheel.png", 1, true) ~= nil)
+  local a2 = icons.get("create:cogwheel")
+  check("icons.get: второй вызов из кэша (один fetch)", a2 == a and #fetched == 1)
+  icons.get("minecraft:iron_ingot")  -- кэш = 2
+  icons.get("minecraft:redstone")    -- лимит 2 → вытеснение самого старого (cogwheel)
+  check("icons.get: LRU вытеснил и вызвал free", #freed == 1 and freed[1]:find("cogwheel", 1, true) ~= nil)
+  check("icons.cacheCount: держит лимит", icons.cacheCount() == 2)
+end
+
 -- layoutPx: пиксельная раскладка GPU (зоны не пересекаются, грид непустой)
 do
   local ui = require("ui_logic")

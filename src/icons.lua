@@ -23,4 +23,61 @@ function M.parseLayer0(model)
   return nil
 end
 
+-- ===== Рантайм: ленивая загрузка + LRU =====
+-- Конфигурируется через DI (тест подменяет fetch/decode/fs).
+local cfg = {
+  baseUrl = "https://raw.githubusercontent.com/davidsuarko-droid/cc-storage-terminal/main/icons/",
+  dir = "/icons",
+  limit = 64,
+  exists = function(p) return fs and fs.exists(p) end,
+  -- читает PNG: сперва с диска, иначе wget по сети, кладёт на диск
+  fetch = function(url) return nil end,
+  decode = function(bytes) return nil end,
+}
+
+-- кэш: map[id]=ref, order = очередь использования (последний — свежий)
+local cache = {}
+local order = {}
+
+function M.configure(opts)
+  for k, v in pairs(opts or {}) do cfg[k] = v end
+  cache = {}; order = {}
+end
+
+function M.cacheCount()
+  local n = 0
+  for _ in pairs(cache) do n = n + 1 end
+  return n
+end
+
+local function touch(id)
+  for i, v in ipairs(order) do
+    if v == id then table.remove(order, i); break end
+  end
+  order[#order + 1] = id
+end
+
+local function evictIfNeeded()
+  while #order > cfg.limit do
+    local victim = table.remove(order, 1)
+    local ref = cache[victim]
+    cache[victim] = nil
+    if ref and ref.free then ref:free() end
+  end
+end
+
+-- Вернуть image-ref иконки для id или nil (нет файла/сети/декода).
+function M.get(id)
+  if cache[id] then touch(id); return cache[id] end
+  local file = M.idToFile(id)
+  local bytes = cfg.fetch(cfg.baseUrl .. file)
+  if not bytes then return nil end
+  local ok, ref = pcall(cfg.decode, bytes)
+  if not ok or not ref then return nil end
+  cache[id] = ref
+  touch(id)
+  evictIfNeeded()
+  return ref
+end
+
 return M
